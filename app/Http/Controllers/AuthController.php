@@ -3,18 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Mail\ResetPasswordMail;
-use App\Mail\VerifyEmailMail;
 use App\Models\AuthToken;
-use App\Models\EmailVerificationToken;
 use App\Models\User;
 use App\Models\UserNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
+use Throwable;
 
 class AuthController extends Controller
 {
@@ -24,6 +23,7 @@ class AuthController extends Controller
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
             'name' => ['nullable', 'string', 'min:2', 'max:100'],
+            'phone' => ['nullable', 'string', 'max:25', 'unique:users,phone', 'regex:/^[0-9+\-\s()]{8,25}$/'],
         ]);
 
         if ($validator->fails()) {
@@ -32,30 +32,23 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $user = User::create([
+        $phone = $request->filled('phone')
+            ? $this->normalizePhone($request->string('phone')->toString())
+            : null;
+
+        $user = User::query()->create([
             'email' => $request->string('email')->lower()->toString(),
             'password' => Hash::make($request->string('password')->toString()),
             'name' => $request->input('name'),
+            'phone' => $phone,
         ]);
-
-        $verification = $this->issueEmailVerificationToken($user);
-        $this->sendVerificationMail($user, $verification['plain']);
 
         $tokens = $this->issueTokens($user);
 
-        $response = array_merge($tokens, [
-            'message' => 'Registration successful. Please verify your email.',
+        return response()->json(array_merge($tokens, [
+            'message' => 'Registration successful',
             'user' => $this->userPayload($user),
-        ]);
-
-        if ($this->shouldExposeDebugToken()) {
-            $response['verification'] = [
-                'token' => $verification['plain'],
-                'expiresAt' => $verification['expiresAt']->toISOString(),
-            ];
-        }
-
-        return response()->json($response, 201);
+        ]), 201);
     }
 
     public function login(Request $request): JsonResponse
@@ -77,12 +70,6 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Invalid credentials',
             ], 401);
-        }
-
-        if ($this->requiresVerifiedEmail() && $user->emailVerifiedAt === null) {
-            return response()->json([
-                'message' => 'Email is not verified',
-            ], 403);
         }
 
         $tokens = $this->issueTokens($user);
@@ -129,13 +116,17 @@ class AuthController extends Controller
             'id' => $user->idUser,
             'idUser' => $user->idUser,
             'email' => $user->email,
+            'phone' => $user->phone,
             'name' => $user->name,
             'createdAt' => $user->createdAt,
             'emailVerifiedAt' => $user->emailVerifiedAt,
             'isEmailVerified' => $user->emailVerifiedAt !== null,
+            'phoneVerifiedAt' => $user->phoneVerifiedAt,
+            'isPhoneVerified' => $user->phoneVerifiedAt !== null,
             'user' => [
                 'userId' => $user->idUser,
                 'email' => $user->email,
+                'phone' => $user->phone,
                 'name' => $user->name,
             ],
         ]);
@@ -178,13 +169,28 @@ class AuthController extends Controller
         }
 
         $token = Password::broker()->createToken($user);
-        $this->sendResetPasswordMail($user, $token);
+        $mailWarning = null;
+
+        try {
+            $this->sendResetPasswordMail($user, $token);
+        } catch (Throwable $exception) {
+            Log::error('Failed to send reset password email.', [
+                'email' => $user->email,
+                'error' => $exception->getMessage(),
+            ]);
+
+            $mailWarning = 'Reset token generated, but email could not be sent right now.';
+        }
 
         if ($this->shouldExposeDebugToken()) {
             $response['reset'] = [
                 'token' => $token,
                 'email' => $email,
             ];
+        }
+
+        if ($mailWarning !== null) {
+            $response['mailWarning'] = $mailWarning;
         }
 
         return response()->json($response);
@@ -233,127 +239,6 @@ class AuthController extends Controller
         ]);
     }
 
-    public function sendVerificationEmail(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'email' => ['required', 'email'],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => $validator->errors()->first(),
-            ], 422);
-        }
-
-        $email = $request->string('email')->lower()->toString();
-        $user = User::query()->where('email', $email)->first();
-
-        $response = [
-            'message' => 'If your email exists, a verification link has been sent.',
-            'success' => true,
-        ];
-
-        if (!$user || $user->emailVerifiedAt !== null) {
-            return response()->json($response);
-        }
-
-        $verification = $this->issueEmailVerificationToken($user);
-        $this->sendVerificationMail($user, $verification['plain']);
-
-        if ($this->shouldExposeDebugToken()) {
-            $response['verification'] = [
-                'token' => $verification['plain'],
-                'expiresAt' => $verification['expiresAt']->toISOString(),
-            ];
-        }
-
-        return response()->json($response);
-    }
-
-    public function verifyEmail(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'email' => ['required', 'email'],
-            'token' => ['required', 'string'],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json([
-                'message' => $validator->errors()->first(),
-            ], 422);
-        }
-
-        $email = $request->string('email')->lower()->toString();
-        $tokenHash = hash('sha256', $request->string('token')->toString());
-        $user = User::query()->where('email', $email)->first();
-
-        if (!$user) {
-            return response()->json([
-                'message' => 'Invalid verification token',
-            ], 400);
-        }
-
-        $verificationToken = EmailVerificationToken::query()
-            ->where('idUser', $user->idUser)
-            ->where('tokenHash', $tokenHash)
-            ->whereNull('verifiedAt')
-            ->where('expiresAt', '>', now())
-            ->latest('idVerificationToken')
-            ->first();
-
-        if (!$verificationToken) {
-            return response()->json([
-                'message' => 'Invalid verification token',
-            ], 400);
-        }
-
-        $verificationToken->update([
-            'verifiedAt' => now(),
-        ]);
-
-        if ($user->emailVerifiedAt === null) {
-            $user->update([
-                'emailVerifiedAt' => now(),
-            ]);
-        }
-
-        return response()->json([
-            'message' => 'Email verified successfully',
-            'success' => true,
-        ]);
-    }
-
-    private function issueEmailVerificationToken(User $user): array
-    {
-        EmailVerificationToken::query()
-            ->where('idUser', $user->idUser)
-            ->whereNull('verifiedAt')
-            ->delete();
-
-        $plain = Str::random(64);
-        $expiresAt = now()->addMinutes((int) env('EMAIL_VERIFICATION_TTL_MINUTES', 60));
-
-        EmailVerificationToken::query()->create([
-            'idUser' => $user->idUser,
-            'tokenHash' => hash('sha256', $plain),
-            'expiresAt' => $expiresAt,
-        ]);
-
-        return [
-            'plain' => $plain,
-            'expiresAt' => $expiresAt,
-        ];
-    }
-
-    private function sendVerificationMail(User $user, string $plainToken): void
-    {
-        $verificationUrl = rtrim((string) env('FRONTEND_URL', 'http://localhost:3001'), '/')
-            . '/verify-email?token=' . urlencode($plainToken)
-            . '&email=' . urlencode($user->email);
-
-        Mail::to($user->email)->send(new VerifyEmailMail($user->email, $verificationUrl));
-    }
-
     private function sendResetPasswordMail(User $user, string $plainToken): void
     {
         $resetUrl = rtrim((string) env('FRONTEND_URL', 'http://localhost:3001'), '/')
@@ -365,12 +250,26 @@ class AuthController extends Controller
 
     private function shouldExposeDebugToken(): bool
     {
-        return app()->environment(['local', 'testing']) || config('app.debug');
+        return in_array((string) config('app.env'), ['local', 'testing'], true) || (bool) config('app.debug');
     }
 
-    private function requiresVerifiedEmail(): bool
+    private function normalizePhone(string $phone): string
     {
-        return (bool) env('AUTH_REQUIRE_VERIFIED_EMAIL', false);
+        $digits = preg_replace('/\D+/', '', trim($phone)) ?? '';
+
+        if ($digits === '') {
+            return '';
+        }
+
+        if (str_starts_with($digits, '0')) {
+            $digits = '62' . substr($digits, 1);
+        }
+
+        if (!str_starts_with($digits, '62')) {
+            $digits = '62' . $digits;
+        }
+
+        return '+' . $digits;
     }
 
     private function issueTokens(User $user): array
@@ -396,10 +295,13 @@ class AuthController extends Controller
             'id' => $user->idUser,
             'idUser' => $user->idUser,
             'email' => $user->email,
+            'phone' => $user->phone,
             'name' => $user->name,
             'createdAt' => $user->createdAt,
             'emailVerifiedAt' => $user->emailVerifiedAt,
             'isEmailVerified' => $user->emailVerifiedAt !== null,
+            'phoneVerifiedAt' => $user->phoneVerifiedAt,
+            'isPhoneVerified' => $user->phoneVerifiedAt !== null,
         ];
     }
 }

@@ -33,8 +33,10 @@ class User extends Authenticatable
         'idUser',
         'name',
         'email',
+        'phone',
         'password',
         'emailVerifiedAt',
+        'phoneVerifiedAt',
     ];
 
     /**
@@ -58,6 +60,7 @@ class User extends Authenticatable
             'createdAt' => 'datetime',
             'updatedAt' => 'datetime',
             'emailVerifiedAt' => 'datetime',
+            'phoneVerifiedAt' => 'datetime',
         ];
     }
 

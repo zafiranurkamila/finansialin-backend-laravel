@@ -8,6 +8,8 @@ use App\Models\Category;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
+use RuntimeException;
 use Tests\TestCase;
 
 class FrontendContractTest extends TestCase
@@ -19,8 +21,10 @@ class FrontendContractTest extends TestCase
         $password = 'secret123';
         $user = User::query()->create([
             'email' => 'contract-login@example.com',
+            'phone' => '+6281000000001',
             'password' => bcrypt($password),
             'name' => 'Contract Login',
+            'phoneVerifiedAt' => now(),
         ]);
 
         $response = $this->postJson('/api/auth/login', [
@@ -39,55 +43,56 @@ class FrontendContractTest extends TestCase
         ]);
     }
 
-    public function test_register_returns_verification_token_in_testing_env(): void
+    public function test_register_returns_tokens_and_user_for_frontend(): void
     {
         $response = $this->postJson('/api/auth/register', [
-            'email' => 'contract-register-verify@example.com',
+            'email' => 'contract-register@example.com',
+            'phone' => '+628111111111',
             'password' => 'secret123',
-            'name' => 'Contract Register Verify',
+            'name' => 'Contract Register',
         ]);
 
         $response->assertCreated();
         $response->assertJsonStructure([
             'accessToken',
             'refreshToken',
-            'verification' => ['token', 'expiresAt'],
-            'user' => ['id', 'idUser', 'email', 'name', 'createdAt', 'emailVerifiedAt', 'isEmailVerified'],
+            'access_token',
+            'refresh_token',
+            'expiresIn',
+            'message',
+            'user' => ['id', 'idUser', 'email', 'phone', 'name', 'createdAt'],
         ]);
-        $response->assertJsonPath('user.isEmailVerified', false);
+        $this->assertDatabaseHas('users', [
+            'email' => 'contract-register@example.com',
+            'phone' => '+628111111111',
+        ]);
     }
 
-    public function test_verify_email_endpoint_marks_user_as_verified(): void
+    public function test_register_normalizes_phone_number_format(): void
     {
-        $register = $this->postJson('/api/auth/register', [
-            'email' => 'contract-verify-email@example.com',
+        $response = $this->postJson('/api/auth/register', [
+            'email' => 'contract-phone-normalize@example.com',
+            'phone' => '0812-3456-7890',
             'password' => 'secret123',
-            'name' => 'Contract Verify Email',
+            'name' => 'Contract Phone Normalize',
         ]);
 
-        $register->assertCreated();
-
-        $verify = $this->postJson('/api/auth/verify-email', [
-            'email' => 'contract-verify-email@example.com',
-            'token' => (string) $register->json('verification.token'),
-        ]);
-
-        $verify->assertOk();
-        $verify->assertJsonPath('success', true);
+        $response->assertCreated();
+        $response->assertJsonPath('user.phone', '+6281234567890');
         $this->assertDatabaseHas('users', [
-            'email' => 'contract-verify-email@example.com',
+            'email' => 'contract-phone-normalize@example.com',
+            'phone' => '+6281234567890',
         ]);
-        $this->assertNotNull(
-            User::query()->where('email', 'contract-verify-email@example.com')->value('emailVerifiedAt')
-        );
     }
 
     public function test_forgot_and_reset_password_flow_contract_for_frontend(): void
     {
         User::query()->create([
             'email' => 'contract-reset-password@example.com',
+            'phone' => '+6281000000002',
             'password' => bcrypt('old-pass-123'),
             'name' => 'Contract Reset Password',
+            'phoneVerifiedAt' => now(),
         ]);
 
         $forgot = $this->postJson('/api/auth/forgot-password', [
@@ -119,6 +124,28 @@ class FrontendContractTest extends TestCase
             'refreshToken',
             'user' => ['id', 'idUser', 'email'],
         ]);
+    }
+
+    public function test_forgot_password_returns_json_when_mail_transport_fails(): void
+    {
+        User::query()->create([
+            'email' => 'contract-mail-fail@example.com',
+            'password' => bcrypt('old-pass-123'),
+            'name' => 'Contract Mail Fail',
+        ]);
+
+        Mail::shouldReceive('to')
+            ->once()
+            ->andThrow(new RuntimeException('SMTP unavailable'));
+
+        $response = $this->postJson('/api/auth/forgot-password', [
+            'email' => 'contract-mail-fail@example.com',
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('success', true);
+        $response->assertJsonPath('mailWarning', 'Reset token generated, but email could not be sent right now.');
+        $this->assertNotEmpty($response->json('reset.token'));
     }
 
     public function test_refresh_accepts_snake_case_and_returns_snake_case_tokens(): void
