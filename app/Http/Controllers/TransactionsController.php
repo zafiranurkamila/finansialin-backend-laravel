@@ -1,0 +1,278 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Budget;
+use App\Models\Category;
+use App\Models\Transaction;
+use App\Models\User;
+use App\Models\UserNotification;
+use Carbon\CarbonImmutable;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+
+class TransactionsController extends Controller
+{
+    public function index(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $transactions = Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->orderByDesc('date')
+            ->get();
+
+        return response()->json($transactions);
+    }
+
+    public function byMonth(Request $request, int $year, int $month): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        if ($month < 1 || $month > 12 || $year < 1970) {
+            return response()->json(['message' => 'Invalid period'], 400);
+        }
+
+        $start = CarbonImmutable::create($year, $month, 1, 0, 0, 0, 'UTC')->startOfMonth();
+        $end = $start->addMonth();
+
+        $transactions = Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->where('date', '>=', $start)
+            ->where('date', '<', $end)
+            ->with('category:idCategory,name')
+            ->orderByDesc('date')
+            ->get();
+
+        return response()->json($transactions);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $validator = Validator::make($request->all(), [
+            'idCategory' => ['nullable', 'integer'],
+            'type' => ['required', 'in:income,expense'],
+            'amount' => ['required', 'numeric', 'min:0'],
+            'description' => ['nullable', 'string'],
+            'date' => ['nullable', 'date'],
+            'source' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        $category = $this->resolveCategory($user, $request->input('idCategory'));
+        if ($request->has('idCategory')) {
+            if ($category === false) {
+                return response()->json(['message' => 'Not allowed'], 403);
+            }
+            if ($category === null) {
+                return response()->json(['message' => 'Category not found'], 404);
+            }
+        }
+
+        $txDate = $request->input('date')
+            ? $this->parseInputDateTime((string) $request->input('date'))
+            : CarbonImmutable::now('UTC');
+
+        $transaction = Transaction::create([
+            'idUser' => $user->idUser,
+            'idCategory' => $category?->idCategory,
+            'type' => $request->string('type')->toString(),
+            'amount' => (float) $request->input('amount'),
+            'description' => $request->input('description'),
+            'date' => $txDate,
+            'source' => $request->input('source'),
+        ]);
+
+        $this->notifyTransaction($user->idUser, $transaction, true);
+        $this->checkBudgetWarning($user, $transaction);
+
+        return response()->json($transaction, 201);
+    }
+
+    public function show(Request $request, int $id): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $transaction = Transaction::query()->where('idTransaction', $id)->first();
+        if (!$transaction) {
+            return response()->json(['message' => 'Transaction not found'], 404);
+        }
+
+        if ($transaction->idUser !== $user->idUser) {
+            return response()->json(['error' => 'Not allowed'], 403);
+        }
+
+        return response()->json($transaction);
+    }
+
+    public function update(Request $request, int $id): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $transaction = Transaction::query()->where('idTransaction', $id)->first();
+        if (!$transaction) {
+            return response()->json(['message' => 'Transaction not found'], 404);
+        }
+
+        if ($transaction->idUser !== $user->idUser) {
+            return response()->json(['message' => 'Not allowed'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'idCategory' => ['nullable', 'integer'],
+            'type' => ['nullable', 'in:income,expense'],
+            'amount' => ['nullable', 'numeric', 'min:0'],
+            'description' => ['nullable', 'string'],
+            'date' => ['nullable', 'date'],
+            'source' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        $newCategoryId = $request->has('idCategory') ? $request->input('idCategory') : $transaction->idCategory;
+        $category = $this->resolveCategory($user, $newCategoryId);
+        if ($newCategoryId !== null) {
+            if ($category === false) {
+                return response()->json(['message' => 'Not allowed'], 403);
+            }
+            if ($category === null) {
+                return response()->json(['message' => 'Category not found'], 404);
+            }
+        }
+
+        $transaction->update([
+            'idCategory' => $newCategoryId,
+            'type' => $request->input('type', $transaction->type),
+            'amount' => $request->input('amount', $transaction->amount),
+            'description' => $request->input('description', $transaction->description),
+            'date' => $request->has('date')
+                ? $this->parseInputDateTime((string) $request->input('date'))
+                : $transaction->date,
+            'source' => $request->input('source', $transaction->source),
+        ]);
+
+        return response()->json($transaction->fresh());
+    }
+
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $transaction = Transaction::query()->where('idTransaction', $id)->first();
+        if (!$transaction) {
+            return response()->json(['message' => 'Transaction not found'], 404);
+        }
+
+        if ($transaction->idUser !== $user->idUser) {
+            return response()->json(['message' => 'Not allowed'], 403);
+        }
+
+        $this->notifyTransaction($user->idUser, $transaction, false);
+        $transaction->delete();
+
+        return response()->json(['message' => 'Transaction deleted']);
+    }
+
+    private function resolveCategory(User $user, mixed $idCategory): Category|false|null
+    {
+        if ($idCategory === null || $idCategory === '') {
+            return null;
+        }
+
+        $category = Category::query()->where('idCategory', (int) $idCategory)->first();
+
+        if (!$category) {
+            return null;
+        }
+
+        if ($category->idUser !== null && $category->idUser !== $user->idUser) {
+            return false;
+        }
+
+        return $category;
+    }
+
+    private function notifyTransaction(int $userId, Transaction $tx, bool $isCreate): void
+    {
+        $label = $tx->type === 'income' ? 'Pemasukan' : 'Pengeluaran';
+        $action = $isCreate ? 'ditambahkan' : 'dihapus';
+        $formatted = number_format((float) $tx->amount, 0, ',', '.');
+
+        UserNotification::create([
+            'idUser' => $userId,
+            'type' => $isCreate ? 'TRANSACTION_CREATED' : 'TRANSACTION_DELETED',
+            'read' => false,
+            'message' => $label . ' sebesar Rp' . $formatted . ' telah ' . $action . '.',
+        ]);
+    }
+
+    private function checkBudgetWarning(User $user, Transaction $tx): void
+    {
+        if ($tx->type !== 'expense' || !$tx->idCategory) {
+            return;
+        }
+
+        $budgets = Budget::query()
+            ->where('idUser', $user->idUser)
+            ->where('idCategory', $tx->idCategory)
+            ->where('periodStart', '<=', $tx->date)
+            ->where('periodEnd', '>=', $tx->date)
+            ->get();
+
+        foreach ($budgets as $budget) {
+            $spent = (float) Transaction::query()
+                ->where('idUser', $user->idUser)
+                ->where('idCategory', $tx->idCategory)
+                ->where('type', 'expense')
+                ->whereBetween('date', [$budget->periodStart, $budget->periodEnd])
+                ->sum('amount');
+
+            $limit = (float) $budget->amount;
+            if ($limit <= 0) {
+                continue;
+            }
+
+            $percent = ($spent / $limit) * 100;
+            $categoryName = $tx->category?->name ?? 'Unknown';
+
+            if ($percent >= 100) {
+                UserNotification::create([
+                    'idUser' => $user->idUser,
+                    'type' => 'BUDGET_EXCEEDED',
+                    'read' => false,
+                    'message' => 'Budget ' . $categoryName . ' telah melebihi batas.',
+                ]);
+            } elseif ($percent >= 80) {
+                UserNotification::create([
+                    'idUser' => $user->idUser,
+                    'type' => 'BUDGET_WARNING',
+                    'read' => false,
+                    'message' => 'Budget ' . $categoryName . ' sudah mencapai ' . round($percent) . '%.',
+                ]);
+            }
+        }
+    }
+
+    private function parseInputDateTime(string $input): CarbonImmutable
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $input) === 1) {
+            return CarbonImmutable::createFromFormat('Y-m-d', $input, 'UTC')->startOfDay();
+        }
+
+        return CarbonImmutable::parse($input)->utc();
+    }
+}
