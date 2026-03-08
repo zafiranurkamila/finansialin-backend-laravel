@@ -22,6 +22,7 @@ class MigrationParityTest extends TestCase
         ]);
 
         $headers = $this->authHeaders($user);
+        $this->seedIncomeBalance($headers, 500000, '2026-01-01');
 
         $response = $this->withHeaders($headers)->postJson('/api/transactions', [
             'type' => 'expense',
@@ -81,6 +82,7 @@ class MigrationParityTest extends TestCase
         ]);
 
         $headers = $this->authHeaders($user);
+        $this->seedIncomeBalance($headers, 1000000, '2026-01-01');
 
         $this->withHeaders($headers)->postJson('/api/transactions', [
             'type' => 'expense',
@@ -126,6 +128,7 @@ class MigrationParityTest extends TestCase
         ]);
 
         $headers = $this->authHeaders($user);
+        $this->seedIncomeBalance($headers, 200000, '2026-01-01');
 
         $this->withHeaders($headers)->postJson('/api/transactions', [
             'idCategory' => $category->idCategory,
@@ -218,6 +221,7 @@ class MigrationParityTest extends TestCase
         ]);
 
         $headers = $this->authHeaders($user);
+        $this->seedIncomeBalance($headers, 500000, '2026-01-01');
 
         $this->withHeaders($headers)->postJson('/api/transactions', [
             'idCategory' => $category->idCategory,
@@ -374,5 +378,15 @@ class MigrationParityTest extends TestCase
             'Authorization' => 'Bearer ' . $token['plain'],
             'Accept' => 'application/json',
         ];
+    }
+
+    private function seedIncomeBalance(array $headers, float $amount, string $date): void
+    {
+        $this->withHeaders($headers)->postJson('/api/transactions', [
+            'type' => 'income',
+            'amount' => $amount,
+            'description' => 'Seed income for balance',
+            'date' => $date,
+        ])->assertCreated();
     }
 }

@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\Budget;
 use App\Models\Category;
+use App\Models\FundingSource;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\UserNotification;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class TransactionsController extends Controller
@@ -62,6 +65,7 @@ class TransactionsController extends Controller
             'description' => ['nullable', 'string'],
             'date' => ['nullable', 'date'],
             'source' => ['nullable', 'string', 'max:255'],
+            'receiptImage' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
         ]);
 
         if ($validator->fails()) {
@@ -82,14 +86,56 @@ class TransactionsController extends Controller
             ? $this->parseInputDateTime((string) $request->input('date'))
             : CarbonImmutable::now('UTC');
 
+        $txType = $request->string('type')->toString();
+        $txAmount = (float) $request->input('amount');
+        $sourceName = trim((string) $request->input('source', ''));
+
+        if ($txType === 'expense') {
+            $balance = $this->currentBalance((int) $user->idUser);
+            if ($txAmount > $balance) {
+                return response()->json([
+                    'message' => 'Insufficient balance for this expense',
+                    'currentBalance' => round($balance, 2),
+                ], 422);
+            }
+        }
+
+        if ($sourceName !== '') {
+            $fundingSource = $this->resolveFundingSource((int) $user->idUser, $sourceName);
+            if (!$fundingSource) {
+                return response()->json([
+                    'message' => 'Funding source not found',
+                ], 422);
+            }
+
+            if ($txType === 'expense') {
+                $sourceBalance = $this->sourceBalance((int) $user->idUser, $fundingSource->name, (float) $fundingSource->initialBalance);
+                if ($txAmount > $sourceBalance) {
+                    return response()->json([
+                        'message' => 'Insufficient balance for selected funding source',
+                        'availableSourceBalance' => round($sourceBalance, 2),
+                        'source' => $fundingSource->name,
+                    ], 422);
+                }
+            }
+
+            $sourceName = $fundingSource->name;
+        }
+
+        $receiptImagePath = null;
+        if ($request->hasFile('receiptImage')) {
+            $receiptImagePath = $this->storeReceiptImage($request->file('receiptImage'), $user->idUser);
+        }
+
         $transaction = Transaction::create([
             'idUser' => $user->idUser,
             'idCategory' => $category?->idCategory,
-            'type' => $request->string('type')->toString(),
-            'amount' => (float) $request->input('amount'),
+            'type' => $txType,
+            'amount' => $txAmount,
             'description' => $request->input('description'),
             'date' => $txDate,
-            'source' => $request->input('source'),
+            'source' => $sourceName !== '' ? $sourceName : null,
+            'receiptImagePath' => $receiptImagePath,
         ]);
 
         $this->notifyTransaction($user->idUser, $transaction, true);
@@ -136,6 +182,8 @@ class TransactionsController extends Controller
             'description' => ['nullable', 'string'],
             'date' => ['nullable', 'date'],
             'source' => ['nullable', 'string', 'max:255'],
+            'receiptImage' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+            'removeReceiptImage' => ['nullable', 'boolean'],
         ]);
 
         if ($validator->fails()) {
@@ -153,15 +201,75 @@ class TransactionsController extends Controller
             }
         }
 
+        $receiptImagePath = $transaction->receiptImagePath;
+        $removeReceiptImage = $request->boolean('removeReceiptImage');
+
+        $nextType = $request->input('type', $transaction->type);
+        $nextAmount = (float) $request->input('amount', $transaction->amount);
+        $nextSourceName = $request->has('source')
+            ? trim((string) $request->input('source', ''))
+            : trim((string) ($transaction->source ?? ''));
+
+        $fundingSource = null;
+        if ($nextSourceName !== '') {
+            $fundingSource = $this->resolveFundingSource((int) $user->idUser, $nextSourceName);
+            if (!$fundingSource) {
+                return response()->json([
+                    'message' => 'Funding source not found',
+                ], 422);
+            }
+            $nextSourceName = $fundingSource->name;
+        }
+
+        if ($nextType === 'expense') {
+            $balance = $this->currentBalance((int) $user->idUser, (int) $transaction->idTransaction);
+            if ($nextAmount > $balance) {
+                return response()->json([
+                    'message' => 'Insufficient balance for this expense',
+                    'currentBalance' => round($balance, 2),
+                ], 422);
+            }
+
+            if ($fundingSource) {
+                $sourceBalance = $this->sourceBalance(
+                    (int) $user->idUser,
+                    $fundingSource->name,
+                    (float) $fundingSource->initialBalance,
+                    (int) $transaction->idTransaction
+                );
+
+                if ($nextAmount > $sourceBalance) {
+                    return response()->json([
+                        'message' => 'Insufficient balance for selected funding source',
+                        'availableSourceBalance' => round($sourceBalance, 2),
+                        'source' => $fundingSource->name,
+                    ], 422);
+                }
+            }
+        }
+
+        if ($removeReceiptImage && $receiptImagePath) {
+            Storage::disk('public')->delete($receiptImagePath);
+            $receiptImagePath = null;
+        }
+
+        if ($request->hasFile('receiptImage')) {
+            if ($receiptImagePath) {
+                Storage::disk('public')->delete($receiptImagePath);
+            }
+            $receiptImagePath = $this->storeReceiptImage($request->file('receiptImage'), $user->idUser);
+        }
+
         $transaction->update([
             'idCategory' => $newCategoryId,
-            'type' => $request->input('type', $transaction->type),
-            'amount' => $request->input('amount', $transaction->amount),
+            'type' => $nextType,
+            'amount' => $nextAmount,
             'description' => $request->input('description', $transaction->description),
             'date' => $request->has('date')
                 ? $this->parseInputDateTime((string) $request->input('date'))
                 : $transaction->date,
-            'source' => $request->input('source', $transaction->source),
+            'source' => $nextSourceName !== '' ? $nextSourceName : null,
+            'receiptImagePath' => $receiptImagePath,
         ]);
 
         return response()->json($transaction->fresh());
@@ -179,6 +287,10 @@ class TransactionsController extends Controller
 
         if ($transaction->idUser !== $user->idUser) {
             return response()->json(['message' => 'Not allowed'], 403);
+        }
+
+        if ($transaction->receiptImagePath) {
+            Storage::disk('public')->delete($transaction->receiptImagePath);
         }
 
         $this->notifyTransaction($user->idUser, $transaction, false);
@@ -274,5 +386,62 @@ class TransactionsController extends Controller
         }
 
         return CarbonImmutable::parse($input)->utc();
+    }
+
+    private function storeReceiptImage(UploadedFile $file, int $userId): string
+    {
+        return $file->store('receipts/' . $userId, 'public');
+    }
+
+    private function currentBalance(int $userId, ?int $excludeTransactionId = null): float
+    {
+        $incomeQuery = Transaction::query()
+            ->where('idUser', $userId)
+            ->where('type', 'income');
+
+        $expenseQuery = Transaction::query()
+            ->where('idUser', $userId)
+            ->where('type', 'expense');
+
+        if ($excludeTransactionId !== null) {
+            $incomeQuery->where('idTransaction', '!=', $excludeTransactionId);
+            $expenseQuery->where('idTransaction', '!=', $excludeTransactionId);
+        }
+
+        $income = (float) $incomeQuery->sum('amount');
+        $expense = (float) $expenseQuery->sum('amount');
+
+        return $income - $expense;
+    }
+
+    private function resolveFundingSource(int $userId, string $sourceName): ?FundingSource
+    {
+        return FundingSource::query()
+            ->where('idUser', $userId)
+            ->whereRaw('LOWER(name) = ?', [strtolower($sourceName)])
+            ->first();
+    }
+
+    private function sourceBalance(int $userId, string $sourceName, float $initialBalance, ?int $excludeTransactionId = null): float
+    {
+        $incomeQuery = Transaction::query()
+            ->where('idUser', $userId)
+            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
+            ->where('type', 'income');
+
+        $expenseQuery = Transaction::query()
+            ->where('idUser', $userId)
+            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
+            ->where('type', 'expense');
+
+        if ($excludeTransactionId !== null) {
+            $incomeQuery->where('idTransaction', '!=', $excludeTransactionId);
+            $expenseQuery->where('idTransaction', '!=', $excludeTransactionId);
+        }
+
+        $income = (float) $incomeQuery->sum('amount');
+        $expense = (float) $expenseQuery->sum('amount');
+
+        return round($initialBalance + $income - $expense, 2);
     }
 }

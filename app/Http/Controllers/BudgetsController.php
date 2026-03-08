@@ -333,6 +333,94 @@ class BudgetsController extends Controller
         ]);
     }
 
+    public function predictive(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $now = CarbonImmutable::now('UTC');
+        $monthStart = $now->startOfMonth();
+        $monthEndExclusive = $monthStart->addMonth();
+        $daysInMonth = (int) $monthStart->daysInMonth;
+
+        $activeBudgets = Budget::query()
+            ->where('idUser', $user->idUser)
+            ->where('periodStart', '<', $monthEndExclusive)
+            ->where('periodEnd', '>=', $monthStart)
+            ->get();
+
+        $totalBudget = (float) $activeBudgets->sum('amount');
+        $windows = [30, 60, 90];
+        $trends = [];
+
+        foreach ($windows as $window) {
+            $from = $now->subDays($window);
+            $sumExpense = (float) Transaction::query()
+                ->where('idUser', $user->idUser)
+                ->where('type', 'expense')
+                ->where('date', '>=', $from)
+                ->sum('amount');
+
+            $dailyAvg = $sumExpense / $window;
+            $projected = $dailyAvg * $daysInMonth;
+            $ratio = $totalBudget > 0 ? ($projected / $totalBudget) * 100 : 0;
+
+            $trends[] = [
+                'windowDays' => $window,
+                'historicalExpense' => round($sumExpense, 2),
+                'projectedMonthExpense' => round($projected, 2),
+                'budgetAmount' => round($totalBudget, 2),
+                'projectedUtilizationPercent' => round($ratio, 2),
+                'riskLevel' => $this->riskLevel($ratio),
+            ];
+        }
+
+        $categories = Category::query()->pluck('name', 'idCategory');
+        $categoryWarnings = [];
+        foreach ($activeBudgets as $budget) {
+            if (!$budget->idCategory || (float) $budget->amount <= 0) {
+                continue;
+            }
+
+            $sum30 = (float) Transaction::query()
+                ->where('idUser', $user->idUser)
+                ->where('type', 'expense')
+                ->where('idCategory', $budget->idCategory)
+                ->where('date', '>=', $now->subDays(30))
+                ->sum('amount');
+
+            $projected = ($sum30 / 30) * $daysInMonth;
+            $ratio = ($projected / (float) $budget->amount) * 100;
+            $risk = $this->riskLevel($ratio);
+
+            if ($risk === 'low') {
+                continue;
+            }
+
+            $categoryWarnings[] = [
+                'idCategory' => $budget->idCategory,
+                'name' => $categories[$budget->idCategory] ?? 'Unknown',
+                'projectedMonthExpense' => round($projected, 2),
+                'budgetAmount' => (float) $budget->amount,
+                'projectedUtilizationPercent' => round($ratio, 2),
+                'riskLevel' => $risk,
+            ];
+        }
+
+        usort($categoryWarnings, static function (array $a, array $b): int {
+            return (float) $b['projectedUtilizationPercent'] <=> (float) $a['projectedUtilizationPercent'];
+        });
+
+        return response()->json([
+            'summary' => [
+                'activeBudgetCount' => $activeBudgets->count(),
+                'totalBudget' => round($totalBudget, 2),
+            ],
+            'trends' => $trends,
+            'categoryWarnings' => array_slice($categoryWarnings, 0, 5),
+        ]);
+    }
+
     private function periodRange(string $period, \DateTimeInterface $date): array
     {
         $d = CarbonImmutable::parse($date->format(DATE_ATOM))->utc();
@@ -362,5 +450,18 @@ class BudgetsController extends Controller
         }
 
         return CarbonImmutable::parse($input)->utc();
+    }
+
+    private function riskLevel(float $utilizationPercent): string
+    {
+        if ($utilizationPercent >= 100) {
+            return 'high';
+        }
+
+        if ($utilizationPercent >= 85) {
+            return 'medium';
+        }
+
+        return 'low';
     }
 }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 class Transaction extends Model
 {
@@ -21,6 +22,11 @@ class Transaction extends Model
         'description',
         'date',
         'source',
+        'receiptImagePath',
+    ];
+
+    protected $appends = [
+        'receiptImageUrl',
     ];
 
     protected $casts = [
@@ -38,5 +44,14 @@ class Transaction extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class, 'idCategory', 'idCategory');
+    }
+
+    public function getReceiptImageUrlAttribute(): ?string
+    {
+        if (!$this->receiptImagePath) {
+            return null;
+        }
+
+        return Storage::disk('public')->url($this->receiptImagePath);
     }
 }
