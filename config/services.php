@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    'ocr' => [
+        'tesseract_bin' => env('OCR_TESSERACT_BIN', 'tesseract'),
+        'language' => env('OCR_LANGUAGE', 'ind+eng'),
+        'oem' => (int) env('OCR_OEM', 1),
+        'psm' => (int) env('OCR_PSM', 6),
+        'min_word_confidence' => (float) env('OCR_MIN_WORD_CONFIDENCE', 35),
+    ],
+
 ];

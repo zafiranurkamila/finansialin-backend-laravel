@@ -68,5 +68,6 @@ Route::middleware('token.auth')->group(function (): void {
     Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
 
     Route::get('/insights/assistant', [InsightsController::class, 'assistant']);
+    Route::post('/insights/receipt-ocr', [InsightsController::class, 'receiptOcr']);
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 });
