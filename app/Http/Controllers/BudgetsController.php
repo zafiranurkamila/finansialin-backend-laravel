@@ -421,6 +421,123 @@ class BudgetsController extends Controller
         ]);
     }
 
+    public function incomeSplit(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $validator = Validator::make($request->all(), [
+            'period' => ['nullable', 'in:day,daily,week,weekly,monthly,year,yearly'],
+            'periodStart' => ['required', 'date'],
+            'periodEnd' => ['required', 'date', 'after_or_equal:periodStart'],
+            'apply' => ['nullable', 'boolean'],
+            'allocations' => ['required', 'array', 'min:1'],
+            'allocations.*.idCategory' => ['nullable', 'integer'],
+            'allocations.*.percent' => ['required', 'numeric', 'gt:0', 'lte:100'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        $period = $this->normalizePeriod((string) $request->input('period', 'monthly'));
+        $periodStart = $this->parseInputDateTime((string) $request->input('periodStart'));
+        $periodEnd = $this->parseInputDateTime((string) $request->input('periodEnd'));
+        $apply = (bool) $request->boolean('apply');
+
+        $allocations = $request->input('allocations', []);
+        $totalPercent = array_reduce($allocations, static function (float $carry, array $item): float {
+            return $carry + (float) ($item['percent'] ?? 0);
+        }, 0.0);
+
+        if ($totalPercent > 100.0) {
+            return response()->json([
+                'message' => 'Total percentage cannot exceed 100',
+            ], 422);
+        }
+
+        $categoryIds = [];
+        foreach ($allocations as $allocation) {
+            if (array_key_exists('idCategory', $allocation) && $allocation['idCategory'] !== null) {
+                $categoryIds[] = (int) $allocation['idCategory'];
+            }
+        }
+
+        if ($categoryIds !== []) {
+            $allowedCategories = Category::query()
+                ->whereIn('idCategory', $categoryIds)
+                ->where(function ($query) use ($user) {
+                    $query->whereNull('idUser')->orWhere('idUser', $user->idUser);
+                })
+                ->pluck('idCategory')
+                ->all();
+
+            $invalid = array_diff($categoryIds, array_map('intval', $allowedCategories));
+            if ($invalid !== []) {
+                return response()->json([
+                    'message' => 'Category not found',
+                ], 404);
+            }
+        }
+
+        $totalIncome = (float) Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->where('type', 'income')
+            ->whereBetween('date', [$periodStart, $periodEnd])
+            ->sum('amount');
+
+        $rows = [];
+        $createdBudgets = [];
+
+        foreach ($allocations as $allocation) {
+            $percent = (float) $allocation['percent'];
+            $amount = round(($totalIncome * $percent) / 100, 2);
+            $idCategory = array_key_exists('idCategory', $allocation) ? $allocation['idCategory'] : null;
+
+            $rows[] = [
+                'idCategory' => $idCategory !== null ? (int) $idCategory : null,
+                'percent' => round($percent, 2),
+                'amount' => $amount,
+            ];
+
+            if ($apply) {
+                $createdBudgets[] = Budget::query()->create([
+                    'idUser' => $user->idUser,
+                    'idCategory' => $idCategory !== null ? (int) $idCategory : null,
+                    'period' => $period,
+                    'periodStart' => $periodStart,
+                    'periodEnd' => $periodEnd,
+                    'amount' => $amount,
+                ]);
+            }
+        }
+
+        if ($apply && $createdBudgets !== []) {
+            UserNotification::create([
+                'idUser' => $user->idUser,
+                'type' => 'BUDGET_CREATED',
+                'read' => false,
+                'message' => 'Budget income split berhasil dibuat.',
+            ]);
+        }
+
+        return response()->json([
+            'period' => [
+                'period' => $period,
+                'periodStart' => $periodStart,
+                'periodEnd' => $periodEnd,
+            ],
+            'summary' => [
+                'totalIncome' => round($totalIncome, 2),
+                'totalPercent' => round($totalPercent, 2),
+                'unallocatedPercent' => round(100 - $totalPercent, 2),
+                'apply' => $apply,
+            ],
+            'allocations' => $rows,
+            'createdBudgets' => $createdBudgets,
+        ]);
+    }
+
     private function periodRange(string $period, \DateTimeInterface $date): array
     {
         $d = CarbonImmutable::parse($date->format(DATE_ATOM))->utc();

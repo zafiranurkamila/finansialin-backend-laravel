@@ -37,6 +37,8 @@ class User extends Authenticatable
         'password',
         'emailVerifiedAt',
         'phoneVerifiedAt',
+        'twoFactorEnabled',
+        'twoFactorConfirmedAt',
     ];
 
     /**
@@ -61,6 +63,8 @@ class User extends Authenticatable
             'updatedAt' => 'datetime',
             'emailVerifiedAt' => 'datetime',
             'phoneVerifiedAt' => 'datetime',
+            'twoFactorEnabled' => 'boolean',
+            'twoFactorConfirmedAt' => 'datetime',
         ];
     }
 
@@ -87,5 +91,10 @@ class User extends Authenticatable
     public function authTokens(): HasMany
     {
         return $this->hasMany(AuthToken::class, 'idUser', 'idUser');
+    }
+
+    public function securityOtps(): HasMany
+    {
+        return $this->hasMany(SecurityOtp::class, 'idUser', 'idUser');
     }
 }

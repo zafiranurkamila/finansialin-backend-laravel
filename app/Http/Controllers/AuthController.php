@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\ResetPasswordMail;
 use App\Models\AuthToken;
+use App\Models\SecurityOtp;
 use App\Models\User;
 use App\Models\UserNotification;
 use Illuminate\Http\JsonResponse;
@@ -23,7 +24,7 @@ class AuthController extends Controller
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
             'name' => ['nullable', 'string', 'min:2', 'max:100'],
-            'phone' => ['nullable', 'string', 'max:25', 'unique:users,phone', 'regex:/^[0-9+\-\s()]{8,25}$/'],
+            'phone' => ['nullable', 'string', 'max:25', 'regex:/^[0-9+\-\s()]{8,25}$/'],
         ]);
 
         if ($validator->fails()) {
@@ -35,6 +36,15 @@ class AuthController extends Controller
         $phone = $request->filled('phone')
             ? $this->normalizePhone($request->string('phone')->toString())
             : null;
+
+        if ($phone !== null && $phone !== '') {
+            $phoneExists = User::query()->where('phone', $phone)->exists();
+            if ($phoneExists) {
+                return response()->json([
+                    'message' => 'The phone has already been taken.',
+                ], 422);
+            }
+        }
 
         $user = User::query()->create([
             'email' => $request->string('email')->lower()->toString(),
@@ -72,6 +82,32 @@ class AuthController extends Controller
             ], 401);
         }
 
+        if ((bool) $user->twoFactorEnabled) {
+            AuthToken::query()
+                ->where('idUser', $user->idUser)
+                ->where('type', 'two_factor')
+                ->whereNull('revokedAt')
+                ->update(['revokedAt' => now()]);
+
+            $pending = AuthToken::issue($user, 'two_factor', now()->addMinutes(10));
+            $otp = SecurityOtp::issue($user, 'login_2fa', 10);
+
+            $this->sendOtpMail($user->email, 'Kode OTP Login Finansialin', $otp['code']);
+
+            $response = [
+                'requiresTwoFactor' => true,
+                'twoFactorToken' => $pending['plain'],
+                'message' => 'OTP has been sent to your email',
+                'expiresIn' => '10m',
+            ];
+
+            if ($this->shouldExposeDebugToken()) {
+                $response['debugOtp'] = $otp['code'];
+            }
+
+            return response()->json($response, 202);
+        }
+
         $tokens = $this->issueTokens($user);
 
         return response()->json(array_merge($tokens, [
@@ -107,6 +143,38 @@ class AuthController extends Controller
         return response()->json($this->issueTokens($token->user));
     }
 
+    public function verifyLoginTwoFactor(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+        /** @var AuthToken $pendingToken */
+        $pendingToken = $request->attributes->get('pending_auth_token');
+
+        $validator = Validator::make($request->all(), [
+            'code' => ['required', 'digits:6'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => $validator->errors()->first(),
+            ], 422);
+        }
+
+        $ok = SecurityOtp::consume($user, 'login_2fa', (string) $request->input('code'));
+        if (!$ok) {
+            return response()->json([
+                'message' => 'Invalid or expired verification code',
+            ], 422);
+        }
+
+        $pendingToken->update(['revokedAt' => now()]);
+        $tokens = $this->issueTokens($user);
+
+        return response()->json(array_merge($tokens, [
+            'user' => $this->userPayload($user),
+        ]));
+    }
+
     public function profile(Request $request): JsonResponse
     {
         /** @var User $user */
@@ -123,6 +191,8 @@ class AuthController extends Controller
             'isEmailVerified' => $user->emailVerifiedAt !== null,
             'phoneVerifiedAt' => $user->phoneVerifiedAt,
             'isPhoneVerified' => $user->phoneVerifiedAt !== null,
+            'twoFactorEnabled' => (bool) $user->twoFactorEnabled,
+            'twoFactorConfirmedAt' => $user->twoFactorConfirmedAt,
             'user' => [
                 'userId' => $user->idUser,
                 'email' => $user->email,
@@ -302,6 +372,18 @@ class AuthController extends Controller
             'isEmailVerified' => $user->emailVerifiedAt !== null,
             'phoneVerifiedAt' => $user->phoneVerifiedAt,
             'isPhoneVerified' => $user->phoneVerifiedAt !== null,
+            'twoFactorEnabled' => (bool) $user->twoFactorEnabled,
+            'twoFactorConfirmedAt' => $user->twoFactorConfirmedAt,
         ];
+    }
+
+    private function sendOtpMail(string $email, string $subject, string $code): void
+    {
+        Mail::raw(
+            "Kode OTP Anda: {$code}\nBerlaku selama 10 menit.",
+            static function ($message) use ($email, $subject): void {
+                $message->to($email)->subject($subject);
+            }
+        );
     }
 }

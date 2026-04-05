@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'token.auth' => \App\Http\Middleware\TokenAuthMiddleware::class,
+            'token.2fa.pending' => \App\Http\Middleware\PendingTwoFactorTokenMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

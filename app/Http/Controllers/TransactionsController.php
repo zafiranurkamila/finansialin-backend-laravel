@@ -53,6 +53,73 @@ class TransactionsController extends Controller
         return response()->json($transactions);
     }
 
+    public function search(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $query = Transaction::query()->where('idUser', $user->idUser);
+
+        $q = trim((string) $request->query('q', ''));
+        if ($q !== '') {
+            $query->where(function ($builder) use ($q) {
+                $builder->where('description', 'like', '%' . $q . '%')
+                    ->orWhere('source', 'like', '%' . $q . '%');
+            });
+        }
+
+        $type = (string) $request->query('type', '');
+        if (in_array($type, ['income', 'expense'], true)) {
+            $query->where('type', $type);
+        }
+
+        if ($request->filled('idCategory')) {
+            $query->where('idCategory', (int) $request->query('idCategory'));
+        }
+
+        $source = trim((string) $request->query('source', ''));
+        if ($source !== '') {
+            $query->where('source', 'like', '%' . $source . '%');
+        }
+
+        if ($request->filled('minAmount')) {
+            $query->where('amount', '>=', (float) $request->query('minAmount'));
+        }
+
+        if ($request->filled('maxAmount')) {
+            $query->where('amount', '<=', (float) $request->query('maxAmount'));
+        }
+
+        if ($request->filled('dateFrom')) {
+            $query->where('date', '>=', $this->parseInputDateTime((string) $request->query('dateFrom')));
+        }
+
+        if ($request->filled('dateTo')) {
+            $query->where('date', '<=', $this->parseInputDateTime((string) $request->query('dateTo')));
+        }
+
+        $sortBy = (string) $request->query('sortBy', 'date');
+        $allowedSort = ['date', 'amount', 'createdAt', 'updatedAt'];
+        if (!in_array($sortBy, $allowedSort, true)) {
+            $sortBy = 'date';
+        }
+
+        $sortOrder = strtolower((string) $request->query('sortOrder', 'desc'));
+        if (!in_array($sortOrder, ['asc', 'desc'], true)) {
+            $sortOrder = 'desc';
+        }
+
+        $limit = (int) $request->query('limit', 100);
+        $limit = max(1, min(200, $limit));
+
+        $transactions = $query
+            ->orderBy($sortBy, $sortOrder)
+            ->limit($limit)
+            ->get();
+
+        return response()->json($transactions);
+    }
+
     public function store(Request $request): JsonResponse
     {
         /** @var User $user */
