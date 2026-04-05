@@ -52,16 +52,25 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-4. Run migrations:
+4. Configure database (External PostgreSQL URL):
+
+```bash
+DB_CONNECTION=pgsql
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB_NAME?sslmode=require
+```
+
+You can also use `DB_URL` as a backward-compat alias.
+
+5. Run migrations:
 
 ```bash
 php artisan migrate
 ```
 
-5. Run server:
+6. Run server:
 
 ```bash
-php artisan serve --host=127.0.0.1 --port=3000
+php artisan serve --host=127.0.0.1 --port=8000 --no-reload
 ```
 
 ## Windows Note (PHPRC)

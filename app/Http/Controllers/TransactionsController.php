@@ -60,6 +60,7 @@ class TransactionsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
+            'idFundingSource' => ['nullable', 'integer'],
             'type' => ['required', 'in:income,expense'],
             'amount' => ['required', 'numeric', 'min:0'],
             'description' => ['nullable', 'string'],
@@ -89,6 +90,18 @@ class TransactionsController extends Controller
         $txType = $request->string('type')->toString();
         $txAmount = (float) $request->input('amount');
         $sourceName = trim((string) $request->input('source', ''));
+        $fundingSource = null;
+
+        if ($request->filled('idFundingSource')) {
+            $fundingSource = $this->resolveFundingSourceById((int) $user->idUser, (int) $request->input('idFundingSource'));
+            if (!$fundingSource) {
+                return response()->json([
+                    'message' => 'Funding source not found',
+                ], 422);
+            }
+
+            $sourceName = $fundingSource->name;
+        }
 
         if ($txType === 'expense') {
             $balance = $this->currentBalance((int) $user->idUser);
@@ -100,7 +113,7 @@ class TransactionsController extends Controller
             }
         }
 
-        if ($sourceName !== '') {
+        if ($sourceName !== '' && !$fundingSource) {
             $fundingSource = $this->resolveFundingSource((int) $user->idUser, $sourceName);
             if (!$fundingSource) {
                 return response()->json([
@@ -108,6 +121,10 @@ class TransactionsController extends Controller
                 ], 422);
             }
 
+            $sourceName = $fundingSource->name;
+        }
+
+        if ($sourceName !== '') {
             if ($txType === 'expense') {
                 $sourceBalance = $this->sourceBalance((int) $user->idUser, $fundingSource->name, (float) $fundingSource->initialBalance);
                 if ($txAmount > $sourceBalance) {
@@ -119,7 +136,6 @@ class TransactionsController extends Controller
                 }
             }
 
-            $sourceName = $fundingSource->name;
         }
 
         $receiptImagePath = null;
@@ -177,6 +193,7 @@ class TransactionsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
+            'idFundingSource' => ['nullable', 'integer'],
             'type' => ['nullable', 'in:income,expense'],
             'amount' => ['nullable', 'numeric', 'min:0'],
             'description' => ['nullable', 'string'],
@@ -211,7 +228,19 @@ class TransactionsController extends Controller
             : trim((string) ($transaction->source ?? ''));
 
         $fundingSource = null;
-        if ($nextSourceName !== '') {
+        if ($request->filled('idFundingSource')) {
+            $fundingSource = $this->resolveFundingSourceById((int) $user->idUser, (int) $request->input('idFundingSource'));
+            if (!$fundingSource) {
+                return response()->json([
+                    'message' => 'Funding source not found',
+                ], 422);
+            }
+            $nextSourceName = $fundingSource->name;
+        } elseif ($request->has('idFundingSource')) {
+            $nextSourceName = '';
+        }
+
+        if ($nextSourceName !== '' && !$fundingSource) {
             $fundingSource = $this->resolveFundingSource((int) $user->idUser, $nextSourceName);
             if (!$fundingSource) {
                 return response()->json([
@@ -419,6 +448,14 @@ class TransactionsController extends Controller
         return FundingSource::query()
             ->where('idUser', $userId)
             ->whereRaw('LOWER(name) = ?', [strtolower($sourceName)])
+            ->first();
+    }
+
+    private function resolveFundingSourceById(int $userId, int $fundingSourceId): ?FundingSource
+    {
+        return FundingSource::query()
+            ->where('idUser', $userId)
+            ->where('idFundingSource', $fundingSourceId)
             ->first();
     }
 
