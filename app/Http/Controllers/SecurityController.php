@@ -7,8 +7,10 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
+use Throwable;
 
 class SecurityController extends Controller
 {
@@ -24,7 +26,17 @@ class SecurityController extends Controller
         }
 
         $otp = SecurityOtp::issue($user, 'email_verification', 10);
-        $this->sendOtpMail($user->email, 'Kode Verifikasi Email', $otp['code']);
+        $mailWarning = null;
+
+        try {
+            $this->sendOtpMail($user->email, 'Kode Verifikasi Email', $otp['code']);
+        } catch (Throwable $exception) {
+            Log::error('Failed to send email verification OTP.', [
+                'email' => $user->email,
+                'error' => $exception->getMessage(),
+            ]);
+            $mailWarning = 'Verification code generated, but email could not be sent right now.';
+        }
 
         $response = [
             'message' => 'Verification code has been sent to your email',
@@ -33,6 +45,10 @@ class SecurityController extends Controller
 
         if ($this->shouldExposeDebugOtp()) {
             $response['debugOtp'] = $otp['code'];
+        }
+
+        if ($mailWarning !== null) {
+            $response['mailWarning'] = $mailWarning;
         }
 
         return response()->json($response);
@@ -88,7 +104,17 @@ class SecurityController extends Controller
         }
 
         $otp = SecurityOtp::issue($user, 'two_factor_enable', 10);
-        $this->sendOtpMail($user->email, 'Kode Aktivasi 2FA', $otp['code']);
+        $mailWarning = null;
+
+        try {
+            $this->sendOtpMail($user->email, 'Kode Aktivasi 2FA', $otp['code']);
+        } catch (Throwable $exception) {
+            Log::error('Failed to send 2FA enable OTP.', [
+                'email' => $user->email,
+                'error' => $exception->getMessage(),
+            ]);
+            $mailWarning = '2FA code generated, but email could not be sent right now.';
+        }
 
         $response = [
             'message' => '2FA activation code has been sent to your email',
@@ -97,6 +123,10 @@ class SecurityController extends Controller
 
         if ($this->shouldExposeDebugOtp()) {
             $response['debugOtp'] = $otp['code'];
+        }
+
+        if ($mailWarning !== null) {
+            $response['mailWarning'] = $mailWarning;
         }
 
         return response()->json($response);

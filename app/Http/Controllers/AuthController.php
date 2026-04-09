@@ -92,7 +92,16 @@ class AuthController extends Controller
             $pending = AuthToken::issue($user, 'two_factor', now()->addMinutes(10));
             $otp = SecurityOtp::issue($user, 'login_2fa', 10);
 
-            $this->sendOtpMail($user->email, 'Kode OTP Login Finansialin', $otp['code']);
+            $mailWarning = null;
+            try {
+                $this->sendOtpMail($user->email, 'Kode OTP Login Finansialin', $otp['code']);
+            } catch (Throwable $exception) {
+                Log::error('Failed to send login 2FA OTP.', [
+                    'email' => $user->email,
+                    'error' => $exception->getMessage(),
+                ]);
+                $mailWarning = 'OTP generated, but email could not be sent right now.';
+            }
 
             $response = [
                 'requiresTwoFactor' => true,
@@ -103,6 +112,10 @@ class AuthController extends Controller
 
             if ($this->shouldExposeDebugToken()) {
                 $response['debugOtp'] = $otp['code'];
+            }
+
+            if ($mailWarning !== null) {
+                $response['mailWarning'] = $mailWarning;
             }
 
             return response()->json($response, 202);

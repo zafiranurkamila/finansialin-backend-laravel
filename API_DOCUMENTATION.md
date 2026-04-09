@@ -8,11 +8,11 @@ Status: draft (implementation-first), so payload/response fields follow current 
 
 ## Base URL
 
-- Local default: `http://127.0.0.1:3000`
+- Local default: `http://127.0.0.1:8000`
 - API prefix: `/api`
 
 Example full endpoint:
-- `POST http://127.0.0.1:3000/api/auth/login`
+- `POST http://127.0.0.1:8000/api/auth/login`
 
 ## Authentication
 
@@ -23,6 +23,12 @@ Authorization: Bearer <accessToken>
 ```
 
 Token format is custom (`auth_tokens` table), not Sanctum/JWT package.
+
+Pending login verification route uses middleware `token.2fa.pending` and expects:
+
+```http
+Authorization: Bearer <twoFactorToken>
+```
 
 ## Common Response Patterns
 
@@ -64,8 +70,29 @@ Success `200`:
 - same token fields as register
 - `user`
 
+If user has 2FA enabled, returns `202`:
+- `requiresTwoFactor` = `true`
+- `twoFactorToken` (temporary bearer token for `/api/auth/2fa/verify-login`)
+- `message`
+- `expiresIn`
+- `debugOtp` only in local/testing/debug
+
 Error:
 - `401` invalid credentials
+
+### POST `/api/auth/2fa/verify-login` (pending 2FA token required)
+Verify login OTP and issue normal access/refresh tokens.
+
+Body:
+- `code` (required, 6 digits)
+
+Success `200`:
+- same token fields as register
+- `user`
+
+Error:
+- `401` invalid/missing pending token
+- `422` invalid or expired OTP
 
 ### POST `/api/auth/refresh`
 Refresh access token pair.
@@ -114,7 +141,58 @@ Success `200` includes:
 - `id`, `idUser`, `email`, `phone`, `name`, `createdAt`
 - `emailVerifiedAt`, `isEmailVerified`
 - `phoneVerifiedAt`, `isPhoneVerified`
+- `twoFactorEnabled`, `twoFactorConfirmedAt`
 - nested `user`
+
+### POST `/api/auth/email/verification/send` (protected)
+Send OTP to user email for verification.
+
+Success `200`:
+- `message`
+- `expiresAt`
+- `debugOtp` only in local/testing/debug
+
+### POST `/api/auth/email/verification/verify` (protected)
+Verify email using OTP.
+
+Body:
+- `code` (required, 6 digits)
+
+Success `200`:
+- `message`
+- `emailVerifiedAt`
+
+### POST `/api/auth/2fa/enable` (protected)
+Request OTP to enable 2FA.
+
+Body:
+- `password` (required)
+
+Success `200`:
+- `message`
+- `expiresAt`
+- `debugOtp` only in local/testing/debug
+
+### POST `/api/auth/2fa/enable/verify` (protected)
+Verify OTP and activate 2FA.
+
+Body:
+- `code` (required, 6 digits)
+
+Success `200`:
+- `message`
+- `twoFactorEnabled`
+- `twoFactorConfirmedAt`
+
+### POST `/api/auth/2fa/disable` (protected)
+Disable 2FA after password confirmation.
+
+Body:
+- `password` (required)
+
+Success `200`:
+- `message`
+- `twoFactorEnabled` = `false`
 
 ### POST `/api/auth/logout` (protected)
 Revoke current bearer token.
@@ -226,16 +304,33 @@ Create transaction.
 
 Body:
 - `idCategory` (optional)
+- `idFundingSource` (optional, preferred)
 - `type` (required: `income|expense`)
 - `amount` (required, numeric)
 - `description` (optional)
 - `date` (optional, date/datetime; default now)
-- `source` (optional funding source name)
+- `source` (optional funding source name, backward compatibility)
 - `receiptImage` (optional file: jpg/jpeg/png/webp max 4MB)
 
 Business validations:
 - expense cannot exceed global current balance
-- if `source` is set, must exist and expense cannot exceed source balance
+- if funding source is set (`idFundingSource` or `source`), source must exist and expense cannot exceed source balance
+
+### GET `/api/transactions/search`
+Search and filter transactions.
+
+Query (all optional):
+- `q` (search in `description` and `source`)
+- `type` (`income|expense`)
+- `idCategory`
+- `source`
+- `minAmount`
+- `maxAmount`
+- `dateFrom`
+- `dateTo`
+- `sortBy` (`date|amount|createdAt|updatedAt`, default `date`)
+- `sortOrder` (`asc|desc`, default `desc`)
+- `limit` (1..200, default 100)
 
 ### GET `/api/transactions/{id}`
 Get transaction detail.
@@ -244,7 +339,7 @@ Get transaction detail.
 Update transaction.
 
 Body (all optional):
-- `idCategory`, `type`, `amount`, `description`, `date`, `source`
+- `idCategory`, `idFundingSource`, `type`, `amount`, `description`, `date`, `source`
 - `receiptImage` (file)
 - `removeReceiptImage` (boolean)
 
@@ -312,6 +407,28 @@ Response includes:
 - `summary`
 - `trends[]`
 - `categoryWarnings[]`
+
+### POST `/api/budgets/income-split`
+Calculate budget allocation from income percentage split and optionally create budgets.
+
+Body:
+- `period` (optional: `day|daily|week|weekly|monthly|year|yearly`)
+- `periodStart` (required)
+- `periodEnd` (required)
+- `apply` (optional boolean, default false)
+- `allocations` (required array, min 1)
+- `allocations[].idCategory` (optional)
+- `allocations[].percent` (required, > 0, <= 100)
+
+Rules:
+- total percent cannot exceed 100
+- categories must be accessible by user
+
+Success `200` includes:
+- `period`
+- `summary` (`totalIncome`, `totalPercent`, `unallocatedPercent`, `apply`)
+- `allocations[]` with calculated `amount`
+- `createdBudgets[]` (filled when `apply=true`)
 
 ## Notification Endpoints (Protected)
 
