@@ -54,11 +54,37 @@ class AuthController extends Controller
         ]);
 
         $tokens = $this->issueTokens($user);
+        $otp = SecurityOtp::issue($user, 'email_verification', 10);
+        $mailWarning = null;
 
-        return response()->json(array_merge($tokens, [
+        try {
+            $this->sendOtpMail($user->email, 'Kode Verifikasi Email', $otp['code']);
+        } catch (Throwable $exception) {
+            Log::error('Failed to send email verification OTP during registration.', [
+                'email' => $user->email,
+                'error' => $exception->getMessage(),
+            ]);
+            $mailWarning = 'Verification code generated, but email could not be sent right now.';
+        }
+
+        $response = array_merge($tokens, [
             'message' => 'Registration successful',
             'user' => $this->userPayload($user),
-        ]), 201);
+            'emailVerification' => [
+                'required' => true,
+                'expiresAt' => $otp['expiresAt'],
+            ],
+        ]);
+
+        if ($this->shouldExposeDebugToken()) {
+            $response['debugOtp'] = $otp['code'];
+        }
+
+        if ($mailWarning !== null) {
+            $response['mailWarning'] = $mailWarning;
+        }
+
+        return response()->json($response, 201);
     }
 
     public function login(Request $request): JsonResponse
