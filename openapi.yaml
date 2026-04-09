@@ -1,0 +1,1778 @@
+openapi: 3.0.3
+info:
+  title: Finansialin API Documentation
+  version: 1.0.0
+  description: >
+    Dokumentasi Swagger (OpenAPI 3.0) untuk aplikasi backend Finansialin (Laravel).
+    Berisi dokumentasi untuk endpoint Auth, Users, Categories, Funding Sources, 
+    Transactions, Budgets, Notifications, Insights, Subscriptions, dan Webhooks.
+servers:
+  - url: "http://127.0.0.1:8000/api"
+    description: Local Server
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Auth
+    description: Autentikasi pengguna, token, dan 2FA
+  - name: Users
+    description: Manajemen profil dan password pengguna
+  - name: Categories
+    description: Manajemen kategori transaksi (default & user-specific)
+  - name: Funding Sources
+    description: Manajemen sumber dana / dompet
+  - name: Transactions
+    description: Pencatatan dan pencarian transaksi (income/expense)
+  - name: Budgets
+    description: Manajemen anggaran (budgets) dan alokasi
+  - name: Notifications
+    description: Pengelolaan notifikasi pengguna
+  - name: Insights
+    description: AI Assistant dan fitur Receipt OCR
+  - name: Subscriptions
+    description: Deteksi langganan dan pengeluaran berulang
+  - name: Integrations
+    description: Integrasi webhooks pihak ketiga
+
+paths:
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register User Baru
+      description: Mendaftarkan user baru dan langsung menerbitkan token akses.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: "secret123"
+                name:
+                  type: string
+                  example: "John Doe"
+                phone:
+                  type: string
+                  example: "081234567890"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TokenResponse'
+                  - type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login User
+      description: Proses autentikasi dengan email dan password. Mendukung 2FA (mengembalikan status 202 jika butuh validasi OTP).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  format: password
+                  example: "secret123"
+      responses:
+        '200':
+          description: Login Successful
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TokenResponse'
+                  - type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+        '202':
+          description: 2FA OTP Required
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requiresTwoFactor:
+                    type: boolean
+                    example: true
+                  twoFactorToken:
+                    type: string
+                    example: "temp-bearer-jwt"
+                  message:
+                    type: string
+                    example: "Two-factor authentication required"
+                  expiresIn:
+                    type: integer
+                    example: 300
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/2fa/verify-login:
+    post:
+      tags:
+        - Auth
+      summary: Verify Login OTP
+      description: Verifikasi OTP untuk login saat 2FA aktif.
+      security:
+        - TwoFactorAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  example: "123456"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/TokenResponse'
+                  - type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid Pending Token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Invalid/Expired OTP
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh Token
+      description: Memperbarui access token dengan menggunakan refresh token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  example: "refresh-token-xyz"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid/Expired Refresh Token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: Forgot Password
+      description: Meminta link/token reset password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+      responses:
+        '200':
+          description: Reset link requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password reset instructions sent"
+
+  /auth/reset-password:
+    post:
+      tags:
+        - Auth
+      summary: Reset Password
+      description: Melakukan pergantian password menggunakan broker token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - token
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                token:
+                  type: string
+                  example: "reset-token-123"
+                password:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: "newsecret456"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password reset successful"
+                  success:
+                    type: boolean
+                    example: true
+        '400':
+          description: Invalid/Expired Token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/profile:
+    get:
+      tags:
+        - Auth
+      summary: Get Profile
+      description: Mendapatkan data profile user yang sedang login.
+      responses:
+        '200':
+          description: Profile data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                    example: 1
+                  email:
+                    type: string
+                    example: "user@example.com"
+                  phone:
+                    type: string
+                    example: "+6281234567890"
+                  name:
+                    type: string
+                    example: "John Doe"
+                  emailVerifiedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  isEmailVerified:
+                    type: boolean
+                    example: true
+                  twoFactorEnabled:
+                    type: boolean
+                    example: false
+                  user:
+                    $ref: '#/components/schemas/User'
+
+  /auth/email/verification/send:
+    post:
+      tags:
+        - Auth
+      summary: Send Email Verification OTP
+      description: Mengirim OTP verifikasi email ke user.
+      responses:
+        '200':
+          description: OTP Sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Verification code sent"
+                  expiresAt:
+                    type: string
+                    format: date-time
+
+  /auth/email/verification/verify:
+    post:
+      tags:
+        - Auth
+      summary: Verify Email via OTP
+      description: Memverifikasi OTP yang dikirim ke email.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  example: "123456"
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Email verified successfully"
+                  emailVerifiedAt:
+                    type: string
+                    format: date-time
+
+  /auth/2fa/enable:
+    post:
+      tags:
+        - Auth
+      summary: Request 2FA Activation OTP
+      description: Meminta OTP untuk aktivasi 2FA yang mensyaratkan konfirmasi password saat ini.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - password
+              properties:
+                password:
+                  type: string
+                  example: "secret123"
+      responses:
+        '200':
+          description: OTP requested
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "OTP sent"
+                  expiresAt:
+                    type: string
+                    format: date-time
+
+  /auth/2fa/enable/verify:
+    post:
+      tags:
+        - Auth
+      summary: Verify OTP to Enable 2FA
+      description: Verifikasi OTP untuk benar-benar mengaktifkan 2FA.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - code
+              properties:
+                code:
+                  type: string
+                  example: "123456"
+      responses:
+        '200':
+          description: 2FA Activated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Two-factor authentication enabled"
+                  twoFactorEnabled:
+                    type: boolean
+                    example: true
+
+  /auth/2fa/disable:
+    post:
+      tags:
+        - Auth
+      summary: Disable 2FA
+      description: Menonaktifkan 2FA dengan validasi password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - password
+              properties:
+                password:
+                  type: string
+                  example: "secret123"
+      responses:
+        '200':
+          description: 2FA Disabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Two-factor authentication disabled"
+                  twoFactorEnabled:
+                    type: boolean
+                    example: false
+
+  /auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Logout
+      description: Keluar dan membatalkan bearer access token yang sedang aktif.
+      responses:
+        '200':
+          description: Logout Successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Logout successful"
+
+  /users/name:
+    patch:
+      tags:
+        - Users
+      summary: Update Name
+      description: Mengubah hanya field name profil.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: "Jane Doe"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Name updated"
+
+  /users/profile:
+    put:
+      tags:
+        - Users
+      summary: Update Profile
+      description: Mengupdate banyak field profil sekaligus.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "Jane Doe"
+                email:
+                  type: string
+                  format: email
+                  example: "janedoe@example.com"
+      responses:
+        '200':
+          description: Success
+
+  /users/password:
+    patch:
+      tags:
+        - Users
+      summary: Change Password
+      description: Mengubah password akun ter-autentikasi (mensyaratkan old password).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - oldPassword
+                - newPassword
+              properties:
+                oldPassword:
+                  type: string
+                  example: "secret123"
+                newPassword:
+                  type: string
+                  example: "newsecret456"
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password changed successfully"
+
+  /categories:
+    get:
+      tags:
+        - Categories
+      summary: Get All Categories
+      description: Menampilkan semua kategori (default app + kategori spesifik user).
+      responses:
+        '200':
+          description: Category List
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+
+    post:
+      tags:
+        - Categories
+      summary: Create Category
+      description: Membuat custom kategori kustom spesifik user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: "Makan Malam"
+                type:
+                  type: string
+                  enum: [income, expense]
+                  example: "expense"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '409':
+          description: Conflict Duplicate Name+Type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /categories/suggest:
+    get:
+      tags:
+        - Categories
+      summary: Suggest Category
+      description: Rekomendasi kategori berdasarkan input history atau context NLP dasar.
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [income, expense]
+            default: expense
+        - in: query
+          name: description
+          schema:
+            type: string
+          example: "starbucks"
+        - in: query
+          name: source
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Suggestion Output
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggested:
+                    $ref: '#/components/schemas/Category'
+                  confidence:
+                    type: number
+                    format: float
+                    example: 0.85
+                  reason:
+                    type: string
+                    example: "Matches history description"
+
+  /categories/{id}:
+    get:
+      tags:
+        - Categories
+      summary: Get Category Detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Category Detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '404':
+          description: Not Found
+
+    put:
+      tags:
+        - Categories
+      summary: Update Category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: "Groceries"
+                type:
+                  type: string
+                  enum: [income, expense]
+      responses:
+        '200':
+          description: Success update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '403':
+          description: Cannot modify default defaults
+
+    delete:
+      tags:
+        - Categories
+      summary: Delete Category
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Sukses hapus
+        '403':
+          description: Cannot delete default
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /funding-sources:
+    get:
+      tags:
+        - Funding Sources
+      summary: Get All Funding Sources
+      description: Menampilkan daftar Funding Sources (dompet/bank) milik user.
+      responses:
+        '200':
+          description: Funding Sources List
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FundingSource'
+
+    post:
+      tags:
+        - Funding Sources
+      summary: Create Funding Source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  example: "BCA"
+                initialBalance:
+                  type: number
+                  example: 1000000
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundingSource'
+
+  /funding-sources/{id}:
+    put:
+      tags:
+        - Funding Sources
+      summary: Update Funding Source
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "BCA Utama"
+                initialBalance:
+                  type: number
+                  example: 1500000
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundingSource'
+
+    delete:
+      tags:
+        - Funding Sources
+      summary: Delete Funding Source
+      description: "Akan gagal (409) jika Funding Source telah digunakan dalam transaksi."
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted
+        '409':
+          description: Source is in-use by transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /transactions:
+    get:
+      tags:
+        - Transactions
+      summary: Get Transactions
+      description: Mendapatkan semua transaksi.
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+
+    post:
+      tags:
+        - Transactions
+      summary: Create Transaction
+      description: Pembuatan transaksi dengan dukungan file image resi.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - type
+                - amount
+              properties:
+                idCategory:
+                  type: integer
+                  example: 5
+                idFundingSource:
+                  type: integer
+                  example: 2
+                type:
+                  type: string
+                  enum: [income, expense]
+                  example: "expense"
+                amount:
+                  type: number
+                  example: 50000
+                description:
+                  type: string
+                  example: "Makan Siang Sate"
+                date:
+                  type: string
+                  format: date-time
+                  example: "2024-05-15 12:30:00"
+                source:
+                  type: string
+                  description: "Backward compatibility property"
+                  example: "Gopay"
+                receiptImage:
+                  type: string
+                  format: binary
+                  description: "Image file <= 4MB (jpg, jpeg, png, webp)"
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '422':
+          description: Validation Error
+
+  /transactions/search:
+    get:
+      tags:
+        - Transactions
+      summary: Search & Filter Transactions
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [income, expense]
+        - in: query
+          name: idCategory
+          schema:
+            type: integer
+        - in: query
+          name: source
+          schema:
+            type: string
+        - in: query
+          name: minAmount
+          schema:
+            type: number
+        - in: query
+          name: maxAmount
+          schema:
+            type: number
+        - in: query
+          name: dateFrom
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: dateTo
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [date, amount, createdAt, updatedAt]
+            default: date
+        - in: query
+          name: sortOrder
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Success list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+
+  /transactions/month/{year}/{month}:
+    get:
+      tags:
+        - Transactions
+      summary: Get Transactions by Month
+      parameters:
+        - in: path
+          name: year
+          required: true
+          schema:
+            type: integer
+            example: 2024
+        - in: path
+          name: month
+          required: true
+          schema:
+            type: integer
+            example: 5
+      responses:
+        '200':
+          description: Transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Transaction'
+        '400':
+          description: Invalid Parameter
+
+  /transactions/{id}:
+    get:
+      tags:
+        - Transactions
+      summary: Get Transaction Detail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '404':
+          description: Not Found
+
+    put:
+      tags:
+        - Transactions
+      summary: Update Transaction
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                idCategory:
+                  type: integer
+                idFundingSource:
+                  type: integer
+                type:
+                  type: string
+                  enum: [income, expense]
+                amount:
+                  type: number
+                description:
+                  type: string
+                date:
+                  type: string
+                  format: date-time
+                source:
+                  type: string
+                receiptImage:
+                  type: string
+                  format: binary
+                removeReceiptImage:
+                  type: boolean
+                  example: false
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+
+    delete:
+      tags:
+        - Transactions
+      summary: Delete Transaction
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deleted (also removes receipt file if present)
+
+  /budgets:
+    get:
+      tags:
+        - Budgets
+      summary: Get List of Budgets
+      responses:
+        '200':
+          description: List of Budgets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Budget'
+
+    post:
+      tags:
+        - Budgets
+      summary: Create New Budget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - periodStart
+                - periodEnd
+                - amount
+              properties:
+                idCategory:
+                  type: integer
+                  example: 3
+                period:
+                  type: string
+                  enum: [day, daily, week, weekly, monthly, year, yearly]
+                  example: "monthly"
+                periodStart:
+                  type: string
+                  format: date
+                  example: "2024-05-01"
+                periodEnd:
+                  type: string
+                  format: date
+                  example: "2024-05-31"
+                amount:
+                  type: number
+                  example: 1000000
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+
+  /budgets/{id}:
+    get:
+      tags:
+        - Budgets
+      summary: Detail Budget
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Single Budget detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+
+    put:
+      tags:
+        - Budgets
+      summary: Update Budget
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                idCategory:
+                  type: integer
+                period:
+                  type: string
+                periodStart:
+                  type: string
+                  format: date
+                periodEnd:
+                  type: string
+                  format: date
+                amount:
+                  type: number
+      responses:
+        '200':
+          description: Complete update Budget
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+
+    delete:
+      tags:
+        - Budgets
+      summary: Delete Budget
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Delete Success
+
+  /budgets/{id}/usage:
+    get:
+      tags:
+        - Budgets
+      summary: Usage Summary
+      description: Penggunaan uang dibanding limit anggaran suatu category di cycle tertentu.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Usage info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  used:
+                    type: number
+                  total:
+                    type: number
+                  percent:
+                    type: number
+                    format: float
+
+  /budgets/filter:
+    get:
+      tags:
+        - Budgets
+      summary: Filter Budgets
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            default: monthly
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: idCategory
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Budgets
+
+  /budgets/goals:
+    get:
+      tags:
+        - Budgets
+      summary: Budget vs Spending Goals
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            default: monthly
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [expense, income]
+            default: expense
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: idCategory
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Aggregation logic Goals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                      end:
+                        type: string
+                      period:
+                        type: string
+                  totals:
+                    type: object
+                    properties:
+                      totalBudget:
+                        type: number
+                      totalSpent:
+                        type: number
+                      remaining:
+                        type: number
+                      percent:
+                        type: number
+                  data:
+                    type: array
+                    items:
+                      type: object
+
+  /budgets/predictive:
+    get:
+      tags:
+        - Budgets
+      summary: Predictive Budgets Info
+      description: Meramal 30/60/90 days prediction berdasar pattern data
+      responses:
+        '200':
+          description: Predictive stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                  trends:
+                    type: array
+                    items:
+                      type: object
+                  categoryWarnings:
+                    type: array
+                    items:
+                      type: object
+
+  /budgets/income-split:
+    post:
+      tags:
+        - Budgets
+      summary: Income-Split Calculator
+      description: Hitungan proporsi alokasi budget berdasar persentase income split.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - periodStart
+                - periodEnd
+                - allocations
+              properties:
+                period:
+                  type: string
+                periodStart:
+                  type: string
+                  format: date
+                periodEnd:
+                  type: string
+                  format: date
+                apply:
+                  type: boolean
+                  default: false
+                allocations:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required:
+                      - percent
+                    properties:
+                      idCategory:
+                        type: integer
+                      percent:
+                        type: number
+                        example: 30
+      responses:
+        '200':
+          description: Hasil hitung
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                  allocations:
+                    type: array
+                    items:
+                      type: object
+                  createdBudgets:
+                    type: array
+                    items:
+                      type: object
+
+  /notifications:
+    get:
+      tags:
+        - Notifications
+      summary: Get all notifications
+      responses:
+        '200':
+          description: Success
+
+  /notifications/unread:
+    get:
+      tags:
+        - Notifications
+      summary: Get unread
+      responses:
+        '200':
+          description: Success
+
+  /notifications/unread/count:
+    get:
+      tags:
+        - Notifications
+      summary: Get count unread
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 3
+
+  /notifications/{id}/read:
+    patch:
+      tags:
+        - Notifications
+      summary: Mark as Read
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Marked
+          
+  /notifications/read-all:
+    patch:
+      tags:
+        - Notifications
+      summary: Mark all unread as Read
+      responses:
+        '200':
+          description: All Marked
+
+  /insights/assistant:
+    get:
+      tags:
+        - Insights
+      summary: User AI Assistant
+      parameters:
+        - in: query
+          name: prompt
+          schema:
+            type: string
+            default: summary
+            enum: [summary, saving_tips, what_to_cut, budget_alerts, free_text]
+        - in: query
+          name: message
+          schema:
+            type: string
+      responses:
+        '200':
+          description: AI Generation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: string
+                  assistantReply:
+                    type: string
+                  quickPrompts:
+                    type: array
+                    items:
+                      type: string
+
+  /insights/receipt-ocr:
+    post:
+      tags:
+        - Insights
+      summary: Upload Receipt for OCR parsing
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - receiptImage
+              properties:
+                receiptImage:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Successful Parsed Data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  merchant:
+                    type: string
+                  date:
+                    type: string
+                    format: date
+                  total:
+                    type: number
+                  items:
+                    type: array
+                    items:
+                      type: object
+                  meta:
+                    type: object
+                  suggested:
+                    type: object
+        '503':
+          description: OCR engine down
+
+  /subscriptions/dashboard:
+    get:
+      tags:
+        - Subscriptions
+      summary: Detect Recurring Bills
+      parameters:
+        - in: query
+          name: lookbackDays
+          schema:
+            type: integer
+            default: 120
+      responses:
+        '200':
+          description: Subs data
+
+  /integrations/qris/email:
+    post:
+      tags:
+        - Integrations
+      summary: Webhook Receipt QRIS from N8N/Email Engine
+      security: []
+      parameters:
+        - in: header
+          name: X-Webhook-Secret
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - amount
+              properties:
+                email:
+                  type: string
+                  format: email
+                amount:
+                  type: number
+                paidAt:
+                  type: string
+                  format: date-time
+                description:
+                  type: string
+                source:
+                  type: string
+                categoryName:
+                  type: string
+                merchant:
+                  type: string
+      responses:
+        '201':
+          description: Transaksi ter-inject
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Authentication standar menggunakan Bearer Token
+    TwoFactorAuth:
+      type: http
+      scheme: bearer
+      description: Authentication pendukung untuk pending verifikasi 2FA (Bearer Token)
+  schemas:
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5c... "
+        refreshToken:
+          type: string
+          example: "refresh_xyz_789..."
+        access_token:
+          type: string
+          description: "Compatibility alias"
+        refresh_token:
+          type: string
+        expiresIn:
+          type: integer
+          example: 3600
+        message:
+          type: string
+          example: "Success"
+          
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        idUser:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          example: "johndoe@example.com"
+        phone:
+          type: string
+          example: "+6281234567890"
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+        idCategory:
+          type: integer
+        name:
+          type: string
+          example: "Food"
+        type:
+          type: string
+          example: "expense"
+
+    FundingSource:
+      type: object
+      properties:
+        id:
+          type: integer
+        idFundingSource:
+          type: integer
+        name:
+          type: string
+          example: "BCA"
+        initialBalance:
+          type: number
+          example: 0
+        availableBalance:
+          type: number
+          example: 150000
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+        idCategory:
+          type: integer
+          nullable: true
+        idFundingSource:
+          type: integer
+          nullable: true
+        type:
+          type: string
+          example: "expense"
+        amount:
+          type: number
+          example: 15000
+        description:
+          type: string
+          example: "Beli Makan"
+        date:
+          type: string
+          format: date-time
+        source:
+          type: string
+          nullable: true
+        receiptImage:
+          type: string
+          nullable: true
+
+    Budget:
+      type: object
+      properties:
+        id:
+          type: integer
+        idCategory:
+          type: integer
+          nullable: true
+        period:
+          type: string
+          example: "monthly"
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        amount:
+          type: number
+          example: 1000000
+
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Unauthorized"
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "The email has already been taken."

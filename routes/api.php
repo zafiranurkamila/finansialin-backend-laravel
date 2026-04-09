@@ -13,6 +13,14 @@ use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WebhookIntegrationsController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/documentation', function () {
+    return view('swagger');
+});
+
+Route::get('/openapi.yaml', function () {
+    return response()->file(base_path('openapi.yaml'));
+});
+
 Route::prefix('auth')->group(function (): void {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
