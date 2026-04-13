@@ -7,6 +7,7 @@ use App\Models\AuthToken;
 use App\Models\SecurityOtp;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\ResourceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -25,6 +26,7 @@ class AuthController extends Controller
             'password' => ['required', 'string', 'min:6'],
             'name' => ['nullable', 'string', 'min:2', 'max:100'],
             'phone' => ['nullable', 'string', 'max:25', 'regex:/^[0-9+\-\s()]{8,25}$/'],
+            'salary_date' => ['nullable', 'date'],
         ]);
 
         if ($validator->fails()) {
@@ -51,7 +53,18 @@ class AuthController extends Controller
             'password' => Hash::make($request->string('password')->toString()),
             'name' => $request->input('name'),
             'phone' => $phone,
+            'salary_date' => $request->input('salary_date'),
         ]);
+
+        // Initialize 3 default resources (mbanking, emoney, cash)
+        try {
+            ResourceService::initializeDefaultResources($user);
+        } catch (Throwable $exception) {
+            Log::error('Failed to initialize resources for new user.', [
+                'userId' => $user->idUser,
+                'error' => $exception->getMessage(),
+            ]);
+        }
 
         $tokens = $this->issueTokens($user);
         $otp = SecurityOtp::issue($user, 'email_verification', 10);

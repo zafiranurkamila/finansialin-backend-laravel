@@ -35,6 +35,7 @@ class User extends Authenticatable
         'email',
         'phone',
         'password',
+        'salary_date',
         'emailVerifiedAt',
         'phoneVerifiedAt',
         'twoFactorEnabled',
@@ -59,6 +60,7 @@ class User extends Authenticatable
     {
         return [
             'password' => 'hashed',
+            'salary_date' => 'date',
             'createdAt' => 'datetime',
             'updatedAt' => 'datetime',
             'emailVerifiedAt' => 'datetime',
@@ -96,6 +98,11 @@ class User extends Authenticatable
     public function securityOtps(): HasMany
     {
         return $this->hasMany(SecurityOtp::class, 'idUser', 'idUser');
+    }
+
+    public function resources(): HasMany
+    {
+        return $this->hasMany(Resource::class, 'idUser', 'idUser');
     }
 
     public function salaries(): HasMany

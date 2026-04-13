@@ -8,6 +8,7 @@ use App\Models\FundingSource;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Services\ResourceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -128,6 +129,7 @@ class TransactionsController extends Controller
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
             'idFundingSource' => ['nullable', 'integer'],
+            'idResource' => ['nullable', 'integer'],
             'type' => ['required', 'in:income,expense'],
             'amount' => ['required', 'numeric', 'min:0'],
             'description' => ['nullable', 'string'],
@@ -213,6 +215,7 @@ class TransactionsController extends Controller
         $transaction = Transaction::create([
             'idUser' => $user->idUser,
             'idCategory' => $category?->idCategory,
+            'idResource' => $request->input('idResource'),
             'type' => $txType,
             'amount' => $txAmount,
             'description' => $request->input('description'),
@@ -220,6 +223,15 @@ class TransactionsController extends Controller
             'source' => $sourceName !== '' ? $sourceName : null,
             'receiptImagePath' => $receiptImagePath,
         ]);
+
+        // Update resource balance jika idResource ada
+        if ($request->filled('idResource')) {
+            if ($txType === 'income') {
+                ResourceService::addIncomeToResource($request->input('idResource'), $txAmount);
+            } elseif ($txType === 'expense') {
+                ResourceService::withdrawFromResource($request->input('idResource'), $txAmount);
+            }
+        }
 
         $this->notifyTransaction($user->idUser, $transaction, true);
         $this->checkBudgetWarning($user, $transaction);
@@ -261,6 +273,7 @@ class TransactionsController extends Controller
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
             'idFundingSource' => ['nullable', 'integer'],
+            'idResource' => ['nullable', 'integer'],
             'type' => ['nullable', 'in:income,expense'],
             'amount' => ['nullable', 'numeric', 'min:0'],
             'description' => ['nullable', 'string'],
@@ -356,8 +369,26 @@ class TransactionsController extends Controller
             $receiptImagePath = $this->storeReceiptImage($request->file('receiptImage'), $user->idUser);
         }
 
+        // Handle resource balance adjustment
+        $oldResId = $transaction->idResource;
+        $oldAmount = $transaction->amount;
+        $oldType = $transaction->type;
+        $newResId = $request->filled('idResource') ? $request->input('idResource') : $oldResId;
+        $newAmount = $nextAmount;
+        $newType = $nextType;
+
+        // Undo old resource transaction
+        if ($oldResId) {
+            if ($oldType === 'income') {
+                ResourceService::withdrawFromResource($oldResId, $oldAmount);
+            } elseif ($oldType === 'expense') {
+                ResourceService::addIncomeToResource($oldResId, $oldAmount);
+            }
+        }
+
         $transaction->update([
             'idCategory' => $newCategoryId,
+            'idResource' => $newResId,
             'type' => $nextType,
             'amount' => $nextAmount,
             'description' => $request->input('description', $transaction->description),
@@ -367,6 +398,15 @@ class TransactionsController extends Controller
             'source' => $nextSourceName !== '' ? $nextSourceName : null,
             'receiptImagePath' => $receiptImagePath,
         ]);
+
+        // Apply new resource transaction
+        if ($newResId) {
+            if ($newType === 'income') {
+                ResourceService::addIncomeToResource($newResId, $newAmount);
+            } elseif ($newType === 'expense') {
+                ResourceService::withdrawFromResource($newResId, $newAmount);
+            }
+        }
 
         return response()->json($transaction->fresh());
     }
@@ -383,6 +423,15 @@ class TransactionsController extends Controller
 
         if ($transaction->idUser !== $user->idUser) {
             return response()->json(['message' => 'Not allowed'], 403);
+        }
+
+        // Undo resource balance
+        if ($transaction->idResource) {
+            if ($transaction->type === 'income') {
+                ResourceService::withdrawFromResource($transaction->idResource, $transaction->amount);
+            } elseif ($transaction->type === 'expense') {
+                ResourceService::addIncomeToResource($transaction->idResource, $transaction->amount);
+            }
         }
 
         if ($transaction->receiptImagePath) {

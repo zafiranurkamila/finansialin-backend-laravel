@@ -12,6 +12,7 @@ use App\Http\Controllers\TransactionsController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WebhookIntegrationsController;
 use App\Http\Controllers\SalaryController;
+use App\Http\Controllers\ResourceController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/documentation', function () {
@@ -99,4 +100,8 @@ Route::middleware('token.auth')->group(function (): void {
     Route::post('/salaries/{id}/receive', [SalaryController::class, 'receive']);
     Route::post('/salaries/{id}/cancel', [SalaryController::class, 'cancel']);
     Route::delete('/salaries/{id}', [SalaryController::class, 'destroy']);
+
+    Route::get('/resources/summary', [ResourceController::class, 'summary']);
+    Route::get('/resources', [ResourceController::class, 'index']);
+    Route::get('/resources/{idResource}', [ResourceController::class, 'show']);
 });

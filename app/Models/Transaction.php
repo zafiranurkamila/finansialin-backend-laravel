@@ -17,6 +17,7 @@ class Transaction extends Model
     protected $fillable = [
         'idUser',
         'idCategory',
+        'idResource',
         'type',
         'amount',
         'description',
@@ -44,6 +45,11 @@ class Transaction extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class, 'idCategory', 'idCategory');
+    }
+
+    public function resource(): BelongsTo
+    {
+        return $this->belongsTo(Resource::class, 'idResource', 'idResource');
     }
 
     public function getReceiptImageUrlAttribute(): ?string
