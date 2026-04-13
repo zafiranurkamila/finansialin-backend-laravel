@@ -1,0 +1,227 @@
+{
+  "info": {
+    "_postman_id": "salary-feature-collection",
+    "name": "Finansialin - Salary Feature API",
+    "description": "Complete API collection for Salary (Gajian) feature testing",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Salary Management",
+      "item": [
+        {
+          "name": "1. Get Salary Summary/Overview",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/salaries/summary/overview",
+              "host": ["{{base_url}}"],
+              "path": ["salaries", "summary", "overview"]
+            },
+            "description": "Get salary overview including pending count, last salary, next salary, and total this year"
+          },
+          "response": []
+        },
+        {
+          "name": "2. List All Salaries",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/salaries?status=pending&month=4&year=2026&page=1",
+              "host": ["{{base_url}}"],
+              "path": ["salaries"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "disabled": true
+                },
+                {
+                  "key": "month",
+                  "value": "4",
+                  "disabled": true
+                },
+                {
+                  "key": "year",
+                  "value": "2026",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get list of all salaries with optional filters (status, month, year)"
+          },
+          "response": []
+        },
+        {
+          "name": "3. Get Salary Detail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/salaries/1",
+              "host": ["{{base_url}}"],
+              "path": ["salaries", "1"]
+            },
+            "description": "Get detail of a specific salary by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "4. Create New Salary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5000000,\n  \"salaryDate\": \"2026-04-15\",\n  \"nextSalaryDate\": \"2026-05-15\",\n  \"description\": \"Gajian Bulanan April 2026\",\n  \"source\": \"PT Maju Jaya Indonesia\",\n  \"autoCreateTransaction\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/salaries",
+              "host": ["{{base_url}}"],
+              "path": ["salaries"]
+            },
+            "description": "Create a new salary record. nextSalaryDate is optional (auto-calculated if not provided)"
+          },
+          "response": []
+        },
+        {
+          "name": "5. Update Salary",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5200000,\n  \"description\": \"Gajian Bulanan April 2026 (Revised)\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/salaries/1",
+              "host": ["{{base_url}}"],
+              "path": ["salaries", "1"]
+            },
+            "description": "Update an existing salary record (partial update)"
+          },
+          "response": []
+        },
+        {
+          "name": "6. Mark Salary as Received",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/salaries/1/receive",
+              "host": ["{{base_url}}"],
+              "path": ["salaries", "1", "receive"]
+            },
+            "description": "Mark salary as received. Automatically creates an income transaction if autoCreateTransaction=true"
+          },
+          "response": []
+        },
+        {
+          "name": "7. Cancel Salary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/salaries/1/cancel",
+              "host": ["{{base_url}}"],
+              "path": ["salaries", "1", "cancel"]
+            },
+            "description": "Cancel a pending salary (only works for pending status)"
+          },
+          "response": []
+        },
+        {
+          "name": "8. Delete Salary",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/salaries/1",
+              "host": ["{{base_url}}"],
+              "path": ["salaries", "1"]
+            },
+            "description": "Delete a salary record (only for pending or cancelled status)"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

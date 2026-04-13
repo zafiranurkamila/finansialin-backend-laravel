@@ -11,6 +11,7 @@ use App\Http\Controllers\InsightsController;
 use App\Http\Controllers\TransactionsController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WebhookIntegrationsController;
+use App\Http\Controllers\SalaryController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/documentation', function () {
@@ -89,4 +90,13 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/insights/assistant', [InsightsController::class, 'assistant']);
     Route::post('/insights/receipt-ocr', [InsightsController::class, 'receiptOcr']);
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
+
+    Route::get('/salaries/summary/overview', [SalaryController::class, 'summary']);
+    Route::get('/salaries', [SalaryController::class, 'index']);
+    Route::post('/salaries', [SalaryController::class, 'store']);
+    Route::get('/salaries/{id}', [SalaryController::class, 'show']);
+    Route::put('/salaries/{id}', [SalaryController::class, 'update']);
+    Route::post('/salaries/{id}/receive', [SalaryController::class, 'receive']);
+    Route::post('/salaries/{id}/cancel', [SalaryController::class, 'cancel']);
+    Route::delete('/salaries/{id}', [SalaryController::class, 'destroy']);
 });

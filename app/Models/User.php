@@ -97,4 +97,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(SecurityOtp::class, 'idUser', 'idUser');
     }
+
+    public function salaries(): HasMany
+    {
+        return $this->hasMany(Salary::class, 'idUser', 'idUser');
+    }
 }
