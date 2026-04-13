@@ -1529,6 +1529,36 @@ paths:
                     items:
                       type: string
 
+  /insights/chat:
+    post:
+      tags:
+        - Insights
+      summary: Chat with Finansialin AI
+      description: Chat interaktif dengan AI Assistant yang terintegrasi Function Calling untuk menganalisa keuangan (dompet, analitik bulanan, dan budget).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - message
+              properties:
+                message:
+                  type: string
+                  example: "Berapa sisa uangku di dompet?"
+      responses:
+        '200':
+          description: AI Respuesta
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply:
+                    type: string
+                    example: "Hai! Saat ini sisa uangmu di dompet sebesar Rp. 500,000."
+  
   /insights/receipt-ocr:
     post:
       tags:

@@ -10,8 +10,10 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use RuntimeException;
+use App\Services\FinancialInsightService;
 
 class InsightsController extends Controller
 {
@@ -813,5 +815,141 @@ class InsightsController extends Controller
                 "30 hari terakhir: pemasukan Rp{$income}, pengeluaran Rp{$expense}, saldo bersih Rp{$net}. "
                 . "Pengeluaran terbesar ada di {$topCategory}.",
         };
+    }
+
+    public function chat(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+        $userId = $user->idUser;
+
+        $request->validate([
+            'message' => 'required|string',
+        ]);
+
+        $message = $request->input('message');
+        $service = new FinancialInsightService();
+
+        $tools = [
+            [
+                'functionDeclarations' => [
+                    [
+                        'name' => 'getWalletBalances',
+                        'description' => 'Gunakan tool ini untuk melihat daftar dompet/rekening pengguna beserta sisa saldonya saat ini.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
+                    [
+                        'name' => 'getMonthlyAnalytics',
+                        'description' => 'Gunakan tool ini untuk melihat ringkasan analitik pengeluaran dan pemasukan per kategori pada bulan tertentu.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'month' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Bulan dalam format angka (1-12). Opsional.'
+                                ],
+                                'year' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Tahun dalam format angka (misal: 2023). Opsional.'
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => 'getBudgetStatus',
+                        'description' => 'Gunakan tool ini untuk melihat status limit budget pengguna dan mendeteksi apakah pengeluaran overbudget atau mendekati batas.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'month' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Bulan dalam format angka (1-12). Opsional.'
+                                ],
+                                'year' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Tahun dalam format angka. Opsional.'
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            ]
+        ];
+
+        $systemInstruction = [
+            'parts' => [
+                ['text' => 'Kamu adalah Finansialin AI, asisten keuangan yang ramah. Jawab dengan gaya bahasa kasual (aku/kamu). Gunakan tools yang tersedia untuk mengambil data pengguna secara real-time. Jika pengguna tidak menyebutkan parameter waktu secara spesifik, asumsikan bulan dan tahun saat ini. Berikan insight yang proaktif berdasarkan saldo dompet dan pola pengeluarannya.']
+            ]
+        ];
+
+        $payload = [
+            'system_instruction' => $systemInstruction,
+            'tools' => $tools,
+            'contents' => [
+                [
+                    'role' => 'user',
+                    'parts' => [
+                        ['text' => $message]
+                    ]
+                ]
+            ]
+        ];
+
+        $apiKey = config('services.gemini.api_key');
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$apiKey}";
+
+        $response = Http::withHeaders(['Content-Type' => 'application/json'])
+            ->post($url, $payload);
+
+        $data = $response->json();
+
+        // Cek apakah balasan merupakan Function Call
+        if (isset($data['candidates'][0]['content']['parts'][0]['functionCall'])) {
+            $functionCall = $data['candidates'][0]['content']['parts'][0]['functionCall'];
+            $functionName = $functionCall['name'];
+            $args = $functionCall['args'] ?? [];
+
+            $functionResult = null;
+
+            if ($functionName === 'getWalletBalances') {
+                $functionResult = $service->getWalletBalances($userId);
+            } elseif ($functionName === 'getMonthlyAnalytics') {
+                $functionResult = $service->getMonthlyAnalytics($userId, $args['month'] ?? null, $args['year'] ?? null);
+            } elseif ($functionName === 'getBudgetStatus') {
+                $functionResult = $service->getBudgetStatus($userId, $args['month'] ?? null, $args['year'] ?? null);
+            }
+
+            // Membangun payload putaran kedua untuk meneruskan Hasil Fungsi ke Gemini
+            $payload['contents'][] = $data['candidates'][0]['content']; // history dari model (berisi call function)
+            $payload['contents'][] = [
+                'role' => 'user', // Wait! actually gemini needs `role: 'user'` for functionResponse or `role: 'function'`? No, role: 'user' inside Gemini Flash or `role: 'function'`. Actually Gemini Docs prefer role 'function'/part 'functionResponse' but sometimes 'user' with 'functionResponse'.
+                'parts' => [
+                    [
+                        'functionResponse' => [
+                            'name' => $functionName,
+                            'response' => [
+                                'name' => $functionName,
+                                'content' => $functionResult
+                            ]
+                        ]
+                    ]
+                ]
+            ];
+
+            // Re-request ke Gemini dengan history dan data balasan
+            $secondResponse = Http::withHeaders(['Content-Type' => 'application/json'])
+                ->post($url, $payload);
+
+            $data = $secondResponse->json();
+        }
+
+        $finalAnswer = $data['candidates'][0]['content']['parts'][0]['text'] ?? 'Maaf, aku tidak bisa memproses permintaan saat ini.';
+
+        return response()->json([
+            'reply' => $finalAnswer
+        ]);
     }
 }

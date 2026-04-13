@@ -43,4 +43,8 @@ return [
         'min_word_confidence' => (float) env('OCR_MIN_WORD_CONFIDENCE', 35),
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+    ],
+
 ];
