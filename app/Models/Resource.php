@@ -16,9 +16,8 @@ class Resource extends Model
 
     protected $fillable = [
         'idUser',
-        'resourceType',
-        'balance',
         'source',
+        'balance',
     ];
 
     protected $casts = [
@@ -44,11 +43,11 @@ class Resource extends Model
     }
 
     /**
-     * Scope to filter by resource type
+     * Scope to filter by source (wallet type)
      */
-    public function scopeByType($query, $resourceType)
+    public function scopeBySource($query, $source)
     {
-        return $query->where('resourceType', $resourceType);
+        return $query->where('source', $source);
     }
 
     /**
@@ -60,11 +59,11 @@ class Resource extends Model
     }
 
     /**
-     * Generate source name: resourceType_userName
-     * Example: mbanking_zafir
+     * Generate source name for wallet
+     * Example: mbanking, emoney, cash
      */
-    public static function generateSource($resourceType, $userName)
+    public static function generateSource($walletType)
     {
-        return strtolower($resourceType . '_' . $userName);
+        return strtolower($walletType);
     }
 }

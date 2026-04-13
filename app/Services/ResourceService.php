@@ -14,17 +14,14 @@ class ResourceService
      */
     public static function initializeDefaultResources(User $user): array
     {
-        $resourceTypes = ['mbanking', 'emoney', 'cash'];
+        $walletTypes = ['mbanking', 'emoney', 'cash'];
         $createdResources = [];
 
-        foreach ($resourceTypes as $type) {
-            $source = Resource::generateSource($type, $user->name ?? 'user');
-            
+        foreach ($walletTypes as $type) {
             $resource = Resource::create([
                 'idUser' => $user->idUser,
-                'resourceType' => $type,
+                'source' => $type,
                 'balance' => 0,
-                'source' => $source,
             ]);
 
             $createdResources[] = $resource;
