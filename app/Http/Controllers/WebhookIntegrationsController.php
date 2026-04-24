@@ -107,7 +107,7 @@ class WebhookIntegrationsController extends Controller
                 ->where(function ($query) use ($userId) {
                     $query->whereNull('idUser')->orWhere('idUser', $userId);
                 })
-                ->orderByRaw('CASE WHEN idUser IS NULL THEN 1 ELSE 0 END')
+                ->orderByRaw('CASE WHEN "idUser" IS NULL THEN 1 ELSE 0 END')
                 ->first();
 
             if ($match) {
@@ -120,7 +120,7 @@ class WebhookIntegrationsController extends Controller
             ->where(function ($query) use ($userId) {
                 $query->whereNull('idUser')->orWhere('idUser', $userId);
             })
-            ->orderByRaw('CASE WHEN idUser IS NULL THEN 1 ELSE 0 END')
+            ->orderByRaw('CASE WHEN "idUser" IS NULL THEN 1 ELSE 0 END')
             ->orderBy('name')
             ->first();
     }
