@@ -825,9 +825,11 @@ class InsightsController extends Controller
 
         $request->validate([
             'message' => 'required|string',
+            'history' => 'nullable|array',
         ]);
 
         $message = $request->input('message');
+        $history = $request->input('history', []);
         $service = new FinancialInsightService();
 
         $tools = [
@@ -875,27 +877,52 @@ class InsightsController extends Controller
                             ],
                         ],
                     ],
+                    [
+                        'name' => 'getRecentTransactions',
+                        'description' => 'Gunakan tool ini untuk melihat riwayat pengeluaran atau pemasukan terakhir pengguna.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'limit' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Jumlah transaksi yang ingin diambil. Standarnya adalah 5.'
+                                ]
+                            ],
+                        ],
+                    ],
                 ]
             ]
         ];
 
         $systemInstruction = [
             'parts' => [
-                ['text' => 'Kamu adalah Finansialin AI, asisten keuangan yang ramah. Jawab dengan gaya bahasa kasual (aku/kamu). Gunakan tools yang tersedia untuk mengambil data pengguna secara real-time. Jika pengguna tidak menyebutkan parameter waktu secara spesifik, asumsikan bulan dan tahun saat ini. Berikan insight yang proaktif berdasarkan saldo dompet dan pola pengeluarannya.']
+                ['text' => 'Kamu adalah Finansialin AI, asisten pribadi virtual yang proaktif, cerdas, dan empatik. Kamu memiliki memori percakapan berkat history yang diberikan. Jawab dengan gaya bahasa kasual (aku/kamu). Gunakan tools yang tersedia untuk merespons akurat terkait keuangan pengguna. Jawab juga pertanyaan sapaan atau trivia dengan luwes tanpa memaksakan diri menjadi kaku. Bila perlu, berikan saran penghematan atau peringatan budget sesuai data riil mereka.']
+            ]
+        ];
+
+        $contents = [];
+        foreach ($history as $chatItem) {
+            if (isset($chatItem['role']) && isset($chatItem['text'])) {
+                $contents[] = [
+                    'role' => $chatItem['role'],
+                    'parts' => [
+                        ['text' => $chatItem['text']]
+                    ]
+                ];
+            }
+        }
+
+        $contents[] = [
+            'role' => 'user',
+            'parts' => [
+                ['text' => $message]
             ]
         ];
 
         $payload = [
             'system_instruction' => $systemInstruction,
             'tools' => $tools,
-            'contents' => [
-                [
-                    'role' => 'user',
-                    'parts' => [
-                        ['text' => $message]
-                    ]
-                ]
-            ]
+            'contents' => $contents
         ];
 
         $apiKey = config('services.gemini.api_key');
@@ -920,6 +947,8 @@ class InsightsController extends Controller
                 $functionResult = $service->getMonthlyAnalytics($userId, $args['month'] ?? null, $args['year'] ?? null);
             } elseif ($functionName === 'getBudgetStatus') {
                 $functionResult = $service->getBudgetStatus($userId, $args['month'] ?? null, $args['year'] ?? null);
+            } elseif ($functionName === 'getRecentTransactions') {
+                $functionResult = $service->getRecentTransactions($userId, $args['limit'] ?? 5);
             }
 
             // Membangun payload putaran kedua untuk meneruskan Hasil Fungsi ke Gemini

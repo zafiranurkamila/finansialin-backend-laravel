@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Resource;
 use App\Models\MonthlyCategoryAnalytic;
 use App\Models\MonthlyBudgetUsage;
+use App\Models\Transaction;
 use Carbon\Carbon;
 
 class FinancialInsightService
@@ -62,5 +63,32 @@ class FinancialInsightService
             ->where('month', $month)
             ->where('year', $year)
             ->get();
+    }
+
+    /**
+     * Get recent transactions for a user.
+     * 
+     * @param int $userId
+     * @param int $limit
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    public function getRecentTransactions($userId, $limit = 5)
+    {
+        return Transaction::with('category:idCategory,name')
+            ->where('idUser', $userId)
+            ->orderByDesc('date')
+            ->limit($limit)
+            ->get()
+            ->map(function ($tx) {
+                return [
+                    'idTransaction' => $tx->idTransaction,
+                    'amount' => $tx->amount,
+                    'type' => $tx->type,
+                    'category' => $tx->category ? $tx->category->name : 'Uncategorized',
+                    'date' => $tx->date->format('Y-m-d H:i:s'),
+                    'description' => $tx->description ?? '',
+                    'source' => $tx->source ?? 'Manual'
+                ];
+            });
     }
 }
