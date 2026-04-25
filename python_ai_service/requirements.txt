@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+prophet
+pandas
+pydantic
+holidays
