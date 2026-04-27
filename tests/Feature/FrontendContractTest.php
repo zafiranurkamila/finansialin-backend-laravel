@@ -43,7 +43,7 @@ class FrontendContractTest extends TestCase
         ]);
     }
 
-    public function test_register_returns_tokens_and_user_for_frontend(): void
+    public function test_register_requires_otp_verification_before_user_creation(): void
     {
         $response = $this->postJson('/api/auth/register', [
             'email' => 'contract-register@example.com',
@@ -52,8 +52,26 @@ class FrontendContractTest extends TestCase
             'name' => 'Contract Register',
         ]);
 
-        $response->assertCreated();
+        $response->assertStatus(202);
+        $response->assertJsonPath('requiresRegistrationVerification', true);
         $response->assertJsonStructure([
+            'message',
+            'requiresRegistrationVerification',
+            'registrationVerification' => ['required', 'email', 'expiresAt'],
+            'debugOtp',
+        ]);
+
+        $this->assertDatabaseMissing('users', [
+            'email' => 'contract-register@example.com',
+        ]);
+
+        $verify = $this->postJson('/api/auth/register/verify', [
+            'email' => 'contract-register@example.com',
+            'code' => (string) $response->json('debugOtp'),
+        ]);
+
+        $verify->assertOk();
+        $verify->assertJsonStructure([
             'accessToken',
             'refreshToken',
             'access_token',
@@ -62,13 +80,14 @@ class FrontendContractTest extends TestCase
             'message',
             'user' => ['id', 'idUser', 'email', 'phone', 'name', 'createdAt'],
         ]);
+
         $this->assertDatabaseHas('users', [
             'email' => 'contract-register@example.com',
             'phone' => '+628111111111',
         ]);
     }
 
-    public function test_register_normalizes_phone_number_format(): void
+    public function test_register_normalizes_phone_number_format_after_otp_verification(): void
     {
         $response = $this->postJson('/api/auth/register', [
             'email' => 'contract-phone-normalize@example.com',
@@ -77,11 +96,41 @@ class FrontendContractTest extends TestCase
             'name' => 'Contract Phone Normalize',
         ]);
 
-        $response->assertCreated();
-        $response->assertJsonPath('user.phone', '+6281234567890');
+        $response->assertStatus(202);
+
+        $verify = $this->postJson('/api/auth/register/verify', [
+            'email' => 'contract-phone-normalize@example.com',
+            'code' => (string) $response->json('debugOtp'),
+        ]);
+
+        $verify->assertOk();
+        $verify->assertJsonPath('user.phone', '+6281234567890');
         $this->assertDatabaseHas('users', [
             'email' => 'contract-phone-normalize@example.com',
             'phone' => '+6281234567890',
+        ]);
+    }
+
+    public function test_register_verify_rejects_invalid_otp(): void
+    {
+        $response = $this->postJson('/api/auth/register', [
+            'email' => 'contract-register-invalid-otp@example.com',
+            'password' => 'secret123',
+            'name' => 'Contract Invalid Otp',
+        ]);
+
+        $response->assertStatus(202);
+
+        $verify = $this->postJson('/api/auth/register/verify', [
+            'email' => 'contract-register-invalid-otp@example.com',
+            'code' => '000000',
+        ]);
+
+        $verify->assertStatus(422);
+        $verify->assertJsonPath('message', 'Invalid or expired verification code');
+
+        $this->assertDatabaseMissing('users', [
+            'email' => 'contract-register-invalid-otp@example.com',
         ]);
     }
 

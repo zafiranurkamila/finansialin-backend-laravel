@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Budget;
 use App\Models\Category;
 use App\Models\FundingSource;
+use App\Models\Resource;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Models\UserNotification;
@@ -140,6 +141,15 @@ class TransactionsController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        if ($request->filled('idResource')) {
+            $resource = $this->resolveResource((int) $user->idUser, (int) $request->input('idResource'));
+            if (!$resource) {
+                return response()->json([
+                    'message' => 'Resource not found',
+                ], 422);
+            }
         }
 
         $category = $this->resolveCategory($user, $request->input('idCategory'));
@@ -285,6 +295,15 @@ class TransactionsController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        if ($request->filled('idResource')) {
+            $resource = $this->resolveResource((int) $user->idUser, (int) $request->input('idResource'));
+            if (!$resource) {
+                return response()->json([
+                    'message' => 'Resource not found',
+                ], 422);
+            }
         }
 
         $newCategoryId = $request->has('idCategory') ? $request->input('idCategory') : $transaction->idCategory;
@@ -572,6 +591,14 @@ class TransactionsController extends Controller
         return FundingSource::query()
             ->where('idUser', $userId)
             ->where('idFundingSource', $fundingSourceId)
+            ->first();
+    }
+
+    private function resolveResource(int $userId, int $resourceId): ?Resource
+    {
+        return Resource::query()
+            ->where('idUser', $userId)
+            ->where('idResource', $resourceId)
             ->first();
     }
 

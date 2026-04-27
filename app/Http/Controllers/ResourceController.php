@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Resource;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class ResourceController extends Controller
 {
@@ -11,9 +12,15 @@ class ResourceController extends Controller
      * Tampilkan daftar resources (dompet) user
      * GET /api/resources
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $user = auth()->user();
+        $user = $request->attributes->get('auth_user');
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
         $resources = Resource::where('idUser', $user->idUser)
             ->orderBy('createdAt', 'asc')
             ->get();
@@ -28,9 +35,15 @@ class ResourceController extends Controller
      * Tampilkan detail resource
      * GET /api/resources/{idResource}
      */
-    public function show($idResource): JsonResponse
+    public function show(Request $request, $idResource): JsonResponse
     {
-        $user = auth()->user();
+        $user = $request->attributes->get('auth_user');
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
         $resource = Resource::where('idUser', $user->idUser)
             ->findOrFail($idResource);
 
@@ -81,9 +94,15 @@ class ResourceController extends Controller
      * Get ringkasan resources user
      * GET /api/resources/summary
      */
-    public function summary(): JsonResponse
+    public function summary(Request $request): JsonResponse
     {
-        $user = auth()->user();
+        $user = $request->attributes->get('auth_user');
+        if (!$user) {
+            return response()->json([
+                'message' => 'Unauthorized',
+            ], 401);
+        }
+
         $resources = Resource::where('idUser', $user->idUser)
             ->get();
 

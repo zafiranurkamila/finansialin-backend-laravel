@@ -4,12 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Mail\ResetPasswordMail;
 use App\Models\AuthToken;
+use App\Models\PendingRegistration;
 use App\Models\SecurityOtp;
 use App\Models\User;
 use App\Models\UserNotification;
 use App\Services\ResourceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -48,46 +50,35 @@ class AuthController extends Controller
             }
         }
 
-        $user = User::query()->create([
-            'email' => $request->string('email')->lower()->toString(),
-            'password' => Hash::make($request->string('password')->toString()),
+        $email = $request->string('email')->lower()->toString();
+        $otp = $this->issueRegistrationOtp([
+            'email' => $email,
+            'passwordHash' => Hash::make($request->string('password')->toString()),
             'name' => $request->input('name'),
             'phone' => $phone,
-            'salary_date' => $request->input('salary_date'),
+            'salaryDate' => $request->input('salary_date'),
         ]);
-
-        // Initialize 3 default resources (mbanking, emoney, cash)
-        try {
-            ResourceService::initializeDefaultResources($user);
-        } catch (Throwable $exception) {
-            Log::error('Failed to initialize resources for new user.', [
-                'userId' => $user->idUser,
-                'error' => $exception->getMessage(),
-            ]);
-        }
-
-        $tokens = $this->issueTokens($user);
-        $otp = SecurityOtp::issue($user, 'email_verification', 10);
         $mailWarning = null;
 
         try {
-            $this->sendOtpMail($user->email, 'Kode Verifikasi Email', $otp['code']);
+            $this->sendOtpMail($email, 'Kode Verifikasi Email Registrasi', $otp['code']);
         } catch (Throwable $exception) {
-            Log::error('Failed to send email verification OTP during registration.', [
-                'email' => $user->email,
+            Log::error('Failed to send registration OTP.', [
+                'email' => $email,
                 'error' => $exception->getMessage(),
             ]);
             $mailWarning = 'Verification code generated, but email could not be sent right now.';
         }
 
-        $response = array_merge($tokens, [
-            'message' => 'Registration successful',
-            'user' => $this->userPayload($user),
-            'emailVerification' => [
+        $response = [
+            'message' => 'OTP has been sent. Complete verification to finish registration.',
+            'requiresRegistrationVerification' => true,
+            'registrationVerification' => [
                 'required' => true,
+                'email' => $email,
                 'expiresAt' => $otp['expiresAt'],
             ],
-        ]);
+        ];
 
         if ($this->shouldExposeDebugToken()) {
             $response['debugOtp'] = $otp['code'];
@@ -97,7 +88,94 @@ class AuthController extends Controller
             $response['mailWarning'] = $mailWarning;
         }
 
-        return response()->json($response, 201);
+        return response()->json($response, 202);
+    }
+
+    public function verifyRegister(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => ['required', 'email', 'max:255'],
+            'code' => ['required', 'digits:6'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => $validator->errors()->first(),
+            ], 422);
+        }
+
+        $email = $request->string('email')->lower()->toString();
+        $pending = PendingRegistration::query()
+            ->where('email', $email)
+            ->where('expiresAt', '>', now())
+            ->first();
+
+        if (!$pending) {
+            return response()->json([
+                'message' => 'Invalid or expired verification code',
+            ], 422);
+        }
+
+        if (!$this->consumeRegistrationOtp($pending, (string) $request->input('code'))) {
+            return response()->json([
+                'message' => 'Invalid or expired verification code',
+            ], 422);
+        }
+
+        if ($pending->phone !== null && $pending->phone !== '') {
+            $phoneExists = User::query()->where('phone', $pending->phone)->exists();
+            if ($phoneExists) {
+                return response()->json([
+                    'message' => 'The phone has already been taken.',
+                ], 422);
+            }
+        }
+
+        try {
+            $user = DB::transaction(function () use ($pending): User {
+                $user = User::query()->create([
+                    'email' => $pending->email,
+                    'password' => $pending->passwordHash,
+                    'name' => $pending->name,
+                    'phone' => $pending->phone,
+                    'salary_date' => $pending->salaryDate,
+                    'emailVerifiedAt' => now(),
+                ]);
+
+                $pending->delete();
+
+                return $user;
+            });
+        } catch (Throwable $exception) {
+            if (str_contains(strtolower($exception->getMessage()), 'users_email_unique')) {
+                return response()->json([
+                    'message' => 'The email has already been taken.',
+                ], 422);
+            }
+
+            throw $exception;
+        }
+
+        // Initialize 3 default resources (mbanking, emoney, cash)
+        try {
+            ResourceService::initializeDefaultResources($user);
+        } catch (Throwable $exception) {
+            Log::error('Failed to initialize resources for verified registration user.', [
+                'userId' => $user->idUser,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+
+        $tokens = $this->issueTokens($user);
+
+        return response()->json(array_merge($tokens, [
+            'message' => 'Registration successful',
+            'user' => $this->userPayload($user),
+            'emailVerification' => [
+                'required' => false,
+                'verifiedAt' => $user->emailVerifiedAt,
+            ],
+        ]));
     }
 
     public function login(Request $request): JsonResponse
@@ -409,6 +487,55 @@ class AuthController extends Controller
             'refresh_token' => $refresh['plain'],
             'expiresIn' => '15m',
         ];
+    }
+
+    private function issueRegistrationOtp(array $payload): array
+    {
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $expiresAt = now()->addMinutes(10);
+
+        PendingRegistration::query()->updateOrCreate(
+            ['email' => $payload['email']],
+            [
+                'passwordHash' => $payload['passwordHash'],
+                'name' => $payload['name'],
+                'phone' => $payload['phone'],
+                'salaryDate' => $payload['salaryDate'],
+                'codeHash' => hash('sha256', $code),
+                'attempts' => 0,
+                'expiresAt' => $expiresAt,
+            ]
+        );
+
+        return [
+            'code' => $code,
+            'expiresAt' => $expiresAt,
+        ];
+    }
+
+    private function consumeRegistrationOtp(PendingRegistration $pending, string $plainCode): bool
+    {
+        if ($pending->expiresAt === null || $pending->expiresAt->isPast()) {
+            return false;
+        }
+
+        $isValid = hash_equals($pending->codeHash, hash('sha256', trim($plainCode)));
+
+        $pending->attempts = (int) $pending->attempts + 1;
+
+        if (!$isValid) {
+            if ($pending->attempts >= 5) {
+                $pending->delete();
+                return false;
+            }
+
+            $pending->save();
+            return false;
+        }
+
+        $pending->save();
+
+        return true;
     }
 
     private function userPayload(User $user): array

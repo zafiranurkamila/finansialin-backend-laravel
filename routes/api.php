@@ -5,6 +5,7 @@ use App\Http\Controllers\BudgetsController;
 use App\Http\Controllers\CategoriesController;
 use App\Http\Controllers\FundingSourcesController;
 use App\Http\Controllers\NotificationsController;
+use App\Http\Controllers\PreferencesController;
 use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\SubscriptionsController;
 use App\Http\Controllers\InsightsController;
@@ -25,6 +26,7 @@ Route::get('/openapi.yaml', function () {
 
 Route::prefix('auth')->group(function (): void {
     Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/register/verify', [AuthController::class, 'verifyRegister']);
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/refresh', [AuthController::class, 'refresh']);
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
@@ -50,6 +52,8 @@ Route::middleware('token.auth')->group(function (): void {
     Route::patch('/users/name', [UsersController::class, 'updateName']);
     Route::put('/users/profile', [UsersController::class, 'updateProfile']);
     Route::patch('/users/password', [UsersController::class, 'resetPassword']);
+    Route::get('/users/preferences', [PreferencesController::class, 'show']);
+    Route::put('/users/preferences', [PreferencesController::class, 'update']);
 
     Route::get('/categories', [CategoriesController::class, 'index']);
     Route::get('/categories/suggest', [CategoriesController::class, 'suggest']);
