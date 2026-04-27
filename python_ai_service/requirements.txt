@@ -4,3 +4,9 @@ prophet
 pandas
 pydantic
 holidays
+requests
+python-multipart
+torch
+torchvision
+transformers
+Pillow

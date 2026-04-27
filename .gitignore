@@ -27,6 +27,23 @@ Thumbs.db
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+*.egg
+*.egg-info/
+
+# Virtual Environments
 python_ai_service/env/
 python_ai_service/venv/
 python_ai_service/.venv/
+
+# Environment Variables & Cache Python
+python_ai_service/.env
+.pytest_cache/
+.mypy_cache/
+
+# PyTorch / AI Models (Just in case models are saved locally)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.h5

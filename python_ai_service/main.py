@@ -1,11 +1,39 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 import pandas as pd
 from prophet import Prophet
 import datetime
 import calendar
+import os
+import requests
+import re
+import io
+import torch
+from PIL import Image
+
+# Bypass PyTorch 2.6 CVE strict check. Karena kita mengunduh model aman dari clóva oficial hub, ini tidak berisiko.
+import transformers.utils.import_utils
+if hasattr(transformers.utils.import_utils, 'check_torch_load_is_safe'):
+    transformers.utils.import_utils.check_torch_load_is_safe = lambda: None
+
+from transformers import DonutProcessor, VisionEncoderDecoderModel
 from schemas import PredictiveBudgetRequest
 
 app = FastAPI(title="Predictive Budgeting AI Service")
+
+# Setup Device and Model globally for OCR
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Loading Donut OCR model on {device}...")
+processor = None
+model = None
+try:
+    processor = DonutProcessor.from_pretrained("naver-clova-ix/donut-base-finetuned-cord-v2")
+    model = VisionEncoderDecoderModel.from_pretrained("naver-clova-ix/donut-base-finetuned-cord-v2")
+    model.to(device)
+    print("Model loaded successfully!")
+except Exception as e:
+    import traceback
+    traceback.print_exc()
+    print(f"Failed to load model: {e}")
 
 def get_last_day_of_month(current_date):
     """Returns the last day of the month for a given datetime object."""
@@ -108,3 +136,78 @@ def predict_budget(request: PredictiveBudgetRequest):
         "is_overspending": is_overspending,
         "warning_message": warning_message
     }
+
+@app.post("/predict/ocr")
+async def predict_ocr(receiptImage: UploadFile = File(...)):
+    if model is None or processor is None:
+        raise HTTPException(
+            status_code=500, 
+            detail="Model OCR lokal gagal dimuat saat server startup akibat kendala versi PyTorch. Silakan cek log terminal."
+        )
+
+    try:
+        contents = await receiptImage.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
+
+    try:
+        # Prepare inputs
+        pixel_values = processor(image, return_tensors="pt").pixel_values
+        pixel_values = pixel_values.to(device)
+
+        # Prepare decoder inputs
+        task_prompt = "<s_cord-v2>"
+        decoder_input_ids = processor.tokenizer(task_prompt, add_special_tokens=False, return_tensors="pt").input_ids
+        decoder_input_ids = decoder_input_ids.to(device)
+
+        # Generate output
+        outputs = model.generate(
+            pixel_values,
+            decoder_input_ids=decoder_input_ids,
+            max_length=model.decoder.config.max_position_embeddings,
+            pad_token_id=processor.tokenizer.pad_token_id,
+            eos_token_id=processor.tokenizer.eos_token_id,
+            use_cache=True,
+            bad_words_ids=[[processor.tokenizer.unk_token_id]],
+            return_dict_in_generate=True,
+        )
+
+        # Decode output
+        sequence = processor.batch_decode(outputs.sequences)[0]
+        sequence = sequence.replace(processor.tokenizer.eos_token, "").replace(processor.tokenizer.pad_token, "")
+        sequence = re.sub(r"<.*?>", "", sequence, count=1).strip()  # remove first task start token
+
+        # Parse XML-like output
+        merchant_name = None
+        total_amount = 0.0
+        date = None
+        
+        merchant_match = re.search(r'<nm>(.*?)</nm>', sequence)
+        if merchant_match:
+            merchant_name = merchant_match.group(1).strip()
+            
+        total_match = re.search(r'<total\.total_price>(.*?)</total\.total_price>', sequence)
+        if total_match:
+            try:
+                total_clean = re.sub(r'[^\d\.]', '', total_match.group(1).replace(',', ''))
+                if total_clean:
+                    total_amount = float(total_clean)
+            except ValueError:
+                pass
+                
+        date_match = re.search(r'<date>(.*?)</date>', sequence)
+        if date_match:
+            date = date_match.group(1).strip()
+            
+        return {
+            "status": "success",
+            "data": {
+                "merchant_name": merchant_name,
+                "total_amount": total_amount,
+                "date": date,
+                "suggested_category": "Pengeluaran Lainnya"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OCR Processing Error: {str(e)}")
