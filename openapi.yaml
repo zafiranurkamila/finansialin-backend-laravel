@@ -1496,6 +1496,109 @@ paths:
         '200':
           description: All Marked
 
+  /insights/receipt-ocr:
+    post:
+      tags:
+        - Insights
+      summary: Auto-Scan Kuitansi (OCR AI Lokal)
+      description: Memindai foto kuitansi untuk mengekstrak Nama Merchant, Total, dan Tanggal menggunakan Vision Model.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - receiptImage
+              properties:
+                receiptImage:
+                  type: string
+                  format: binary
+                  description: File gambar (.jpg, .png)
+      responses:
+        '200':
+          description: Ekstraksi Berhasil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: object
+                    properties:
+                      merchant_name:
+                        type: string
+                        example: "Indomaret"
+                      total_amount:
+                        type: number
+                        example: 250000
+                      date:
+                        type: string
+                        example: "2026-04-27"
+                      suggested_category:
+                        type: string
+                        example: "Pengeluaran Lainnya"
+
+  /insights/predict-early-warning:
+    post:
+      tags:
+        - Insights
+      summary: Predictive Budget Early Warning
+      description: Memprediksi apakah pengeluaran pengguna akan melebihi budget di bulan ini menggunakan Prophet Time Series.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - user_id
+                - budget
+                - payday_date
+                - expenses
+              properties:
+                user_id:
+                  type: integer
+                budget:
+                  type: number
+                payday_date:
+                  type: integer
+                expenses:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      date:
+                        type: string
+                        format: date
+                      amount:
+                        type: number
+      responses:
+        '200':
+          description: Prediksi selesai
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: integer
+                  projected_total_expense:
+                    type: number
+                    example: 1200000.50
+                  budget:
+                    type: number
+                    example: 1000000
+                  is_overspending:
+                    type: boolean
+                    example: true
+                  warning_message:
+                    type: string
+                    example: "Warning: Projected total expenses exceed your monthly budget. Consider adjusting your spending habits."
+
   /insights/assistant:
     get:
       tags:

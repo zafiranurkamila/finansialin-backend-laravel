@@ -1,0 +1,18 @@
+# Mengabaikan file-file environment & library agar tidak ter-push ke github
+env/
+venv/
+.venv/
+__pycache__/
+
+# Mengabaikan weight models AI bawaan lokal (ukurannya bisa begiga-giga)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.h5
+
+# Kumpulan logs dan cache
+*.log
+.pytest_cache/
+.mypy_cache/
+.env

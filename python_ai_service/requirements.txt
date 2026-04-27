@@ -9,4 +9,6 @@ python-multipart
 torch
 torchvision
 transformers
+sentencepiece
+protobuf
 Pillow
