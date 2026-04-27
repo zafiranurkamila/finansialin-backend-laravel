@@ -145,6 +145,39 @@ class InsightsController extends Controller
         }
     }
 
+    public function predictEarlyWarning(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'user_id' => ['required', 'integer'],
+            'budget' => ['required', 'numeric'],
+            'payday_date' => ['required', 'integer'],
+            'expenses' => ['required', 'array'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        try {
+            $response = Http::post('http://localhost:8000/predict/budget', $request->all());
+
+            if ($response->successful()) {
+                return response()->json($response->json(), 200);
+            }
+
+            return response()->json([
+                'message' => 'AI Service Error',
+                'details' => $response->json(),
+            ], $response->status());
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to connect to AI service',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     private function buildAssistantReply(string $prompt, array $summary, string $message = ''): string
     {
         $income = number_format((float) ($summary['income'] ?? 0), 0, ',', '.');

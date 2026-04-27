@@ -90,6 +90,7 @@ Route::middleware('token.auth')->group(function (): void {
 
     Route::get('/insights/assistant', [InsightsController::class, 'assistant']);
     Route::post('/insights/receipt-ocr', [InsightsController::class, 'receiptOcr']);
+    Route::post('/insights/predict-early-warning', [InsightsController::class, 'predictEarlyWarning']);
     Route::post('/insights/chat', [InsightsController::class, 'chat']);
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 

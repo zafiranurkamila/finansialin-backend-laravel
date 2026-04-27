@@ -1662,49 +1662,6 @@ paths:
                     type: string
                     example: "Hai! Saat ini sisa uangmu di dompet sebesar Rp. 500,000."
   
-  /insights/receipt-ocr:
-    post:
-      tags:
-        - Insights
-      summary: Upload Receipt for OCR parsing
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - receiptImage
-              properties:
-                receiptImage:
-                  type: string
-                  format: binary
-      responses:
-        '200':
-          description: Successful Parsed Data
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  merchant:
-                    type: string
-                  date:
-                    type: string
-                    format: date
-                  total:
-                    type: number
-                  items:
-                    type: array
-                    items:
-                      type: object
-                  meta:
-                    type: object
-                  suggested:
-                    type: object
-        '503':
-          description: OCR engine down
-
   /subscriptions/dashboard:
     get:
       tags:
