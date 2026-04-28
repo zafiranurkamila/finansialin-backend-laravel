@@ -93,6 +93,7 @@ Route::middleware('token.auth')->group(function (): void {
     Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
 
     Route::get('/insights/assistant', [InsightsController::class, 'assistant']);
+    Route::get('/insights/dashboard-summary', [InsightsController::class, 'dashboardSummary']);
     Route::post('/insights/receipt-ocr', [InsightsController::class, 'receiptOcr']);
     Route::post('/insights/predict-early-warning', [InsightsController::class, 'predictEarlyWarning']);
     Route::post('/insights/chat', [InsightsController::class, 'chat']);

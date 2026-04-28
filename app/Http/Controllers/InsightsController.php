@@ -178,6 +178,73 @@ class InsightsController extends Controller
         }
     }
 
+    public function dashboardSummary(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+        
+        $now = CarbonImmutable::now('UTC');
+        
+        // Calculate total income and expense
+        $totalIncome = (float) Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->where('type', 'income')
+            ->sum('amount');
+        
+        $totalExpense = (float) Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->where('type', 'expense')
+            ->sum('amount');
+        
+        $totalBalance = $totalIncome - $totalExpense;
+        
+        // Get income grouped by last 6 months
+        $last6Months = [];
+        $incomeChartData = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $monthDate = $now->subMonths($i)->startOfMonth();
+            $monthKey = $monthDate->format('Y-m');
+            $last6Months[] = $monthKey;
+            
+            $monthIncome = (float) Transaction::query()
+                ->where('idUser', $user->idUser)
+                ->where('type', 'income')
+                ->whereBetween('date', [$monthDate, $monthDate->endOfMonth()])
+                ->sum('amount');
+            
+            $incomeChartData[] = [
+                'month' => $monthDate->format('M'),
+                'amount' => round($monthIncome, 2),
+            ];
+        }
+        
+        // Get 3 most recent transactions with category names
+        $recentTransactions = Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->with('category:idCategory,name')
+            ->orderByDesc('date')
+            ->limit(3)
+            ->get()
+            ->map(function ($transaction) {
+                return [
+                    'id' => $transaction->idTransaction,
+                    'description' => $transaction->description,
+                    'type' => $transaction->type,
+                    'amount' => round($transaction->amount, 2),
+                    'date' => $transaction->date->format('Y-m-d'),
+                    'categoryName' => $transaction->category?->name ?? 'Uncategorized',
+                ];
+            });
+        
+        return response()->json([
+            'totalIncome' => round($totalIncome, 2),
+            'totalExpense' => round($totalExpense, 2),
+            'totalBalance' => round($totalBalance, 2),
+            'incomeChartData' => $incomeChartData,
+            'recentTransactions' => $recentTransactions,
+        ]);
+    }
+
     private function buildAssistantReply(string $prompt, array $summary, string $message = ''): string
     {
         $income = number_format((float) ($summary['income'] ?? 0), 0, ',', '.');

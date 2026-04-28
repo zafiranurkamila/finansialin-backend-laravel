@@ -24,10 +24,14 @@ class TransactionsController extends Controller
         /** @var User $user */
         $user = $request->attributes->get('auth_user');
 
+        $perPage = (int) $request->query('per_page', 25);
+        $perPage = max(1, min(100, $perPage)); // Limit between 1 and 100
+
         $transactions = Transaction::query()
             ->where('idUser', $user->idUser)
+            ->with('category:idCategory,name')
             ->orderByDesc('date')
-            ->get();
+            ->paginate($perPage);
 
         return response()->json($transactions);
     }
@@ -111,13 +115,13 @@ class TransactionsController extends Controller
             $sortOrder = 'desc';
         }
 
-        $limit = (int) $request->query('limit', 100);
-        $limit = max(1, min(200, $limit));
+        $perPage = (int) $request->query('per_page', 25);
+        $perPage = max(1, min(100, $perPage)); // Limit between 1 and 100
 
         $transactions = $query
+            ->with('category:idCategory,name')
             ->orderBy($sortBy, $sortOrder)
-            ->limit($limit)
-            ->get();
+            ->paginate($perPage);
 
         return response()->json($transactions);
     }
