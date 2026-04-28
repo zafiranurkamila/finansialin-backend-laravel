@@ -24,7 +24,26 @@ class BudgetsController extends Controller
             ->orderByDesc('periodStart')
             ->get();
 
-        return response()->json($budgets);
+        $result = $budgets->map(function (Budget $budget) use ($user) {
+            $query = Transaction::query()
+                ->where('idUser', $user->idUser)
+                ->where('type', 'expense')
+                ->whereBetween('date', [$budget->periodStart, $budget->periodEnd]);
+
+            if ($budget->idCategory) {
+                $query->where('idCategory', $budget->idCategory);
+            }
+
+            $used = (float) $query->sum('amount');
+
+            $arr = $budget->toArray();
+            $arr['spent'] = $used;
+            $arr['percent'] = $budget->amount > 0 ? ($used / $budget->amount) * 100 : 0;
+
+            return $arr;
+        });
+
+        return response()->json($result);
     }
 
     public function store(Request $request): JsonResponse
