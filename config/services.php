@@ -41,6 +41,7 @@ return [
         'oem' => (int) env('OCR_OEM', 1),
         'psm' => (int) env('OCR_PSM', 6),
         'min_word_confidence' => (float) env('OCR_MIN_WORD_CONFIDENCE', 35),
+        'service_url' => env('OCR_AI_SERVICE_URL', 'http://127.0.0.1:8001'),
     ],
 
     'gemini' => [

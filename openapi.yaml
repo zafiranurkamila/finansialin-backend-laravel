@@ -69,23 +69,23 @@ paths:
                   type: string
                   example: "081234567890"
       responses:
-        '201':
+        "201":
           description: Created
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/TokenResponse'
+                  - $ref: "#/components/schemas/TokenResponse"
                   - type: object
                     properties:
                       user:
-                        $ref: '#/components/schemas/User'
-        '422':
+                        $ref: "#/components/schemas/User"
+        "422":
           description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ValidationErrorResponse'
+                $ref: "#/components/schemas/ValidationErrorResponse"
 
   /auth/login:
     post:
@@ -113,18 +113,18 @@ paths:
                   format: password
                   example: "secret123"
       responses:
-        '200':
+        "200":
           description: Login Successful
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/TokenResponse'
+                  - $ref: "#/components/schemas/TokenResponse"
                   - type: object
                     properties:
                       user:
-                        $ref: '#/components/schemas/User'
-        '202':
+                        $ref: "#/components/schemas/User"
+        "202":
           description: 2FA OTP Required
           content:
             application/json:
@@ -143,12 +143,12 @@ paths:
                   expiresIn:
                     type: integer
                     example: 300
-        '401':
+        "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /auth/2fa/verify-login:
     post:
@@ -171,29 +171,29 @@ paths:
                   type: string
                   example: "123456"
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
               schema:
                 allOf:
-                  - $ref: '#/components/schemas/TokenResponse'
+                  - $ref: "#/components/schemas/TokenResponse"
                   - type: object
                     properties:
                       user:
-                        $ref: '#/components/schemas/User'
-        '401':
+                        $ref: "#/components/schemas/User"
+        "401":
           description: Invalid Pending Token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '422':
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
           description: Invalid/Expired OTP
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ValidationErrorResponse'
+                $ref: "#/components/schemas/ValidationErrorResponse"
 
   /auth/refresh:
     post:
@@ -215,18 +215,18 @@ paths:
                   type: string
                   example: "refresh-token-xyz"
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TokenResponse'
-        '401':
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
           description: Invalid/Expired Refresh Token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /auth/forgot-password:
     post:
@@ -249,7 +249,7 @@ paths:
                   format: email
                   example: "user@example.com"
       responses:
-        '200':
+        "200":
           description: Reset link requested
           content:
             application/json:
@@ -291,7 +291,7 @@ paths:
                   minLength: 6
                   example: "newsecret456"
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
@@ -304,12 +304,12 @@ paths:
                   success:
                     type: boolean
                     example: true
-        '400':
+        "400":
           description: Invalid/Expired Token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /auth/profile:
     get:
@@ -318,7 +318,7 @@ paths:
       summary: Get Profile
       description: Mendapatkan data profile user yang sedang login.
       responses:
-        '200':
+        "200":
           description: Profile data
           content:
             application/json:
@@ -348,7 +348,7 @@ paths:
                     type: boolean
                     example: false
                   user:
-                    $ref: '#/components/schemas/User'
+                    $ref: "#/components/schemas/User"
 
   /auth/email/verification/send:
     post:
@@ -357,7 +357,7 @@ paths:
       summary: Send Email Verification OTP
       description: Mengirim OTP verifikasi email ke user.
       responses:
-        '200':
+        "200":
           description: OTP Sent
           content:
             application/json:
@@ -390,7 +390,7 @@ paths:
                   type: string
                   example: "123456"
       responses:
-        '200':
+        "200":
           description: Verified
           content:
             application/json:
@@ -423,7 +423,7 @@ paths:
                   type: string
                   example: "secret123"
       responses:
-        '200':
+        "200":
           description: OTP requested
           content:
             application/json:
@@ -456,7 +456,7 @@ paths:
                   type: string
                   example: "123456"
       responses:
-        '200':
+        "200":
           description: 2FA Activated
           content:
             application/json:
@@ -489,7 +489,7 @@ paths:
                   type: string
                   example: "secret123"
       responses:
-        '200':
+        "200":
           description: 2FA Disabled
           content:
             application/json:
@@ -510,7 +510,7 @@ paths:
       summary: Logout
       description: Keluar dan membatalkan bearer access token yang sedang aktif.
       responses:
-        '200':
+        "200":
           description: Logout Successful
           content:
             application/json:
@@ -540,7 +540,7 @@ paths:
                   type: string
                   example: "Jane Doe"
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
@@ -572,7 +572,7 @@ paths:
                   format: email
                   example: "janedoe@example.com"
       responses:
-        '200':
+        "200":
           description: Success
 
   /users/password:
@@ -598,7 +598,7 @@ paths:
                   type: string
                   example: "newsecret456"
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
@@ -616,14 +616,14 @@ paths:
       summary: Get All Categories
       description: Menampilkan semua kategori (default app + kategori spesifik user).
       responses:
-        '200':
+        "200":
           description: Category List
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Category'
+                  $ref: "#/components/schemas/Category"
 
     post:
       tags:
@@ -647,18 +647,18 @@ paths:
                   enum: [income, expense]
                   example: "expense"
       responses:
-        '201':
+        "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Category'
-        '409':
+                $ref: "#/components/schemas/Category"
+        "409":
           description: Conflict Duplicate Name+Type
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /categories/suggest:
     get:
@@ -683,7 +683,7 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Suggestion Output
           content:
             application/json:
@@ -691,7 +691,7 @@ paths:
                 type: object
                 properties:
                   suggested:
-                    $ref: '#/components/schemas/Category'
+                    $ref: "#/components/schemas/Category"
                   confidence:
                     type: number
                     format: float
@@ -712,13 +712,13 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Category Detail
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Category'
-        '404':
+                $ref: "#/components/schemas/Category"
+        "404":
           description: Not Found
 
     put:
@@ -741,13 +741,13 @@ paths:
                   type: string
                   enum: [income, expense]
       responses:
-        '200':
+        "200":
           description: Success update
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Category'
-        '403':
+                $ref: "#/components/schemas/Category"
+        "403":
           description: Cannot modify default defaults
 
     delete:
@@ -761,14 +761,14 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Sukses hapus
-        '403':
+        "403":
           description: Cannot delete default
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /funding-sources:
     get:
@@ -776,15 +776,17 @@ paths:
         - Funding Sources
       summary: Get All Funding Sources
       description: Menampilkan daftar Funding Sources (dompet/bank) milik user.
+      security:
+        - BearerAuth: []
       responses:
-        '200':
+        "200":
           description: Funding Sources List
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/FundingSource'
+                  $ref: "#/components/schemas/FundingSource"
 
     post:
       tags:
@@ -806,12 +808,14 @@ paths:
                   type: number
                   example: 1000000
       responses:
-        '201':
+        "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FundingSource'
+                $ref: "#/components/schemas/FundingSource"
+      security:
+        - BearerAuth: []
 
   /funding-sources/{id}:
     put:
@@ -838,12 +842,14 @@ paths:
                   type: number
                   example: 1500000
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FundingSource'
+                $ref: "#/components/schemas/FundingSource"
+      security:
+        - BearerAuth: []
 
     delete:
       tags:
@@ -857,14 +863,14 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Deleted
-        '409':
+        "409":
           description: Source is in-use by transactions
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: "#/components/schemas/ErrorResponse"
 
   /transactions:
     get:
@@ -873,20 +879,22 @@ paths:
       summary: Get Transactions
       description: Mendapatkan semua transaksi.
       responses:
-        '200':
+        "200":
           description: List of transactions
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Transaction'
+                  $ref: "#/components/schemas/Transaction"
 
     post:
       tags:
         - Transactions
       summary: Create Transaction
       description: Pembuatan transaksi dengan dukungan file image resi.
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -919,20 +927,23 @@ paths:
                   example: "2024-05-15 12:30:00"
                 source:
                   type: string
-                  description: "Backward compatibility property"
-                  example: "Gopay"
+                  description: >-
+                    Backward compatibility property. If the `source` value matches a
+                    resource name (e.g. "mbanking", "emoney", "cash"), the
+                    corresponding resource balance will be updated automatically.
+                  example: "mbanking"
                 receiptImage:
                   type: string
                   format: binary
                   description: "Image file <= 4MB (jpg, jpeg, png, webp)"
       responses:
-        '201':
+        "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Transaction'
-        '422':
+                $ref: "#/components/schemas/Transaction"
+        "422":
           description: Validation Error
 
   /transactions/search:
@@ -994,14 +1005,14 @@ paths:
             type: integer
             default: 100
       responses:
-        '200':
+        "200":
           description: Success list
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Transaction'
+                  $ref: "#/components/schemas/Transaction"
 
   /transactions/month/{year}/{month}:
     get:
@@ -1022,15 +1033,15 @@ paths:
             type: integer
             example: 5
       responses:
-        '200':
+        "200":
           description: Transactions
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Transaction'
-        '400':
+                  $ref: "#/components/schemas/Transaction"
+        "400":
           description: Invalid Parameter
 
   /transactions/{id}:
@@ -1045,13 +1056,13 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Transaction'
-        '404':
+                $ref: "#/components/schemas/Transaction"
+        "404":
           description: Not Found
 
     put:
@@ -1094,12 +1105,12 @@ paths:
                   type: boolean
                   example: false
       responses:
-        '200':
+        "200":
           description: Updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Transaction'
+                $ref: "#/components/schemas/Transaction"
 
     delete:
       tags:
@@ -1112,7 +1123,7 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Deleted (also removes receipt file if present)
 
   /budgets:
@@ -1121,14 +1132,14 @@ paths:
         - Budgets
       summary: Get List of Budgets
       responses:
-        '200':
+        "200":
           description: List of Budgets
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Budget'
+                  $ref: "#/components/schemas/Budget"
 
     post:
       tags:
@@ -1164,12 +1175,12 @@ paths:
                   type: number
                   example: 1000000
       responses:
-        '201':
+        "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Budget'
+                $ref: "#/components/schemas/Budget"
 
   /budgets/{id}:
     get:
@@ -1183,12 +1194,12 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Single Budget detail
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Budget'
+                $ref: "#/components/schemas/Budget"
 
     put:
       tags:
@@ -1220,12 +1231,12 @@ paths:
                 amount:
                   type: number
       responses:
-        '200':
+        "200":
           description: Complete update Budget
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Budget'
+                $ref: "#/components/schemas/Budget"
 
     delete:
       tags:
@@ -1238,7 +1249,7 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Delete Success
 
   /budgets/{id}/usage:
@@ -1254,7 +1265,7 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Usage info
           content:
             application/json:
@@ -1290,7 +1301,7 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Budgets
 
   /budgets/goals:
@@ -1320,7 +1331,7 @@ paths:
           schema:
             type: integer
       responses:
-        '200':
+        "200":
           description: Aggregation logic Goals
           content:
             application/json:
@@ -1359,7 +1370,7 @@ paths:
       summary: Predictive Budgets Info
       description: Meramal 30/60/90 days prediction berdasar pattern data
       responses:
-        '200':
+        "200":
           description: Predictive stats
           content:
             application/json:
@@ -1419,7 +1430,7 @@ paths:
                         type: number
                         example: 30
       responses:
-        '200':
+        "200":
           description: Hasil hitung
           content:
             application/json:
@@ -1443,7 +1454,7 @@ paths:
         - Notifications
       summary: Get all notifications
       responses:
-        '200':
+        "200":
           description: Success
 
   /notifications/unread:
@@ -1452,7 +1463,7 @@ paths:
         - Notifications
       summary: Get unread
       responses:
-        '200':
+        "200":
           description: Success
 
   /notifications/unread/count:
@@ -1461,7 +1472,7 @@ paths:
         - Notifications
       summary: Get count unread
       responses:
-        '200':
+        "200":
           description: Success
           content:
             application/json:
@@ -1484,16 +1495,16 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: Marked
-          
+
   /notifications/read-all:
     patch:
       tags:
         - Notifications
       summary: Mark all unread as Read
       responses:
-        '200':
+        "200":
           description: All Marked
 
   /insights/receipt-ocr:
@@ -1516,7 +1527,7 @@ paths:
                   format: binary
                   description: File gambar (.jpg, .png)
       responses:
-        '200':
+        "200":
           description: Ekstraksi Berhasil
           content:
             application/json:
@@ -1577,7 +1588,7 @@ paths:
                       amount:
                         type: number
       responses:
-        '200':
+        "200":
           description: Prediksi selesai
           content:
             application/json:
@@ -1616,7 +1627,7 @@ paths:
           schema:
             type: string
       responses:
-        '200':
+        "200":
           description: AI Generation
           content:
             application/json:
@@ -1651,7 +1662,7 @@ paths:
                   type: string
                   example: "Berapa sisa uangku di dompet?"
       responses:
-        '200':
+        "200":
           description: AI Respuesta
           content:
             application/json:
@@ -1661,7 +1672,7 @@ paths:
                   reply:
                     type: string
                     example: "Hai! Saat ini sisa uangmu di dompet sebesar Rp. 500,000."
-  
+
   /subscriptions/dashboard:
     get:
       tags:
@@ -1674,7 +1685,7 @@ paths:
             type: integer
             default: 120
       responses:
-        '200':
+        "200":
           description: Subs data
 
   /integrations/qris/email:
@@ -1716,7 +1727,7 @@ paths:
                 merchant:
                   type: string
       responses:
-        '201':
+        "201":
           description: Transaksi ter-inject
 
 components:
@@ -1750,7 +1761,7 @@ components:
         message:
           type: string
           example: "Success"
-          
+
     User:
       type: object
       properties:

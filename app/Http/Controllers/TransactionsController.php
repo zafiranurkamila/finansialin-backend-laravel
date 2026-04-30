@@ -239,11 +239,30 @@ class TransactionsController extends Controller
         ]);
 
         // Update resource balance jika idResource ada
-        if ($request->filled('idResource')) {
+        // If a resource was explicitly provided or the sourceName maps to a Resource,
+        // apply balance changes to that resource. This allows frontends to send
+        // a `source` like "mbanking", "emoney" or "cash" and have the
+        // corresponding resource balance update automatically.
+        $appliedResourceId = null;
+        if (isset($resource) && $resource) {
+            $appliedResourceId = $resource->idResource;
+        } else {
+            // try to resolve resource by source name when idResource not provided
+            if (empty($appliedResourceId) && $sourceName !== '') {
+                $resolved = $this->resolveResourceBySourceName((int) $user->idUser, $sourceName);
+                if ($resolved) {
+                    $appliedResourceId = $resolved->idResource;
+                    // also set idResource on transaction for consistency
+                    $transaction->update(['idResource' => $appliedResourceId]);
+                }
+            }
+        }
+
+        if ($appliedResourceId) {
             if ($txType === 'income') {
-                ResourceService::addIncomeToResource($request->input('idResource'), $txAmount);
+                ResourceService::addIncomeToResource($appliedResourceId, $txAmount);
             } elseif ($txType === 'expense') {
-                ResourceService::withdrawFromResource($request->input('idResource'), $txAmount);
+                ResourceService::withdrawFromResource($appliedResourceId, $txAmount);
             }
         }
 
@@ -603,6 +622,14 @@ class TransactionsController extends Controller
         return Resource::query()
             ->where('idUser', $userId)
             ->where('idResource', $resourceId)
+            ->first();
+    }
+
+    private function resolveResourceBySourceName(int $userId, string $sourceName): ?Resource
+    {
+        return Resource::query()
+            ->where('idUser', $userId)
+            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
             ->first();
     }
 
