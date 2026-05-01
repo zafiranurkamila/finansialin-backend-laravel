@@ -47,6 +47,9 @@ Route::prefix('auth')->group(function (): void {
 
 Route::post('/integrations/qris/email', [WebhookIntegrationsController::class, 'ingestQrisEmail']);
 
+// Internal API — dipanggil oleh Python AI service (tanpa token auth)
+Route::get('/internal/balance', [\App\Http\Controllers\ChatbotController::class, 'internalGetBalance']);
+
 Route::middleware('token.auth')->group(function (): void {
     Route::patch('/users/name', [UsersController::class, 'updateName']);
     Route::put('/users/profile', [UsersController::class, 'updateProfile']);
@@ -107,5 +110,4 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/resources/{idResource}', [ResourceController::class, 'show']);
     
     Route::post('/chat', [ChatbotController::class, 'chat']);
-    Route::get('/internal/balance', [\App\Http\Controllers\ChatbotController::class, 'internalGetBalance']);
 });
