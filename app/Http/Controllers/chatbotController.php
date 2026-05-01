@@ -421,4 +421,26 @@ class ChatbotController extends Controller
             return response()->json(['error' => 'Gagal mengambil data saldo'], 500);
         }
     }
+    public function internalGetRecentTransactions(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $limit = $request->query('limit', 5); // Default ambil 5 transaksi kalau tidak dispesifikasikan
+
+        if (!$userId) {
+            return response()->json(['error' => 'user_id is required'], 400);
+        }
+
+        try {
+            // Memanggil service yang sudah ada untuk mengambil transaksi terakhir
+            $transactions = $this->insightService->getRecentTransactions((int) $userId, (int) $limit);
+            
+            return response()->json([
+                'status' => 'success',
+                'data' => $transactions
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Recent Transactions Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data riwayat transaksi'], 500);
+        }
+    }
 }
