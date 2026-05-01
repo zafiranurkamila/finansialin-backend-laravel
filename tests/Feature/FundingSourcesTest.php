@@ -4,7 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\AuthToken;
 use App\Models\Category;
+use App\Models\Resource;
 use App\Models\User;
+use App\Services\ResourceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -12,27 +14,22 @@ class FundingSourcesTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_user_can_create_and_list_funding_sources(): void
+    public function test_user_can_list_resources_as_wallets(): void
     {
         $user = User::factory()->create();
         $headers = $this->authHeaders($user);
 
-        $create = $this->withHeaders($headers)->postJson('/api/funding-sources', [
-            'name' => 'Cash',
-            'initialBalance' => 500000,
-        ]);
+        ResourceService::initializeDefaultResources($user);
 
-        $create->assertCreated();
-        $create->assertJsonPath('name', 'Cash');
-        $this->assertSame(500000.0, (float) $create->json('initialBalance'));
-
-        $index = $this->withHeaders($headers)->getJson('/api/funding-sources');
+        $index = $this->withHeaders($headers)->getJson('/api/resources');
         $index->assertOk();
-        $index->assertJsonCount(1);
-        $index->assertJsonPath('0.name', 'Cash');
+        $index->assertJsonCount(3, 'data');
+        $index->assertJsonPath('data.0.source', 'mbanking');
+        $index->assertJsonPath('data.1.source', 'emoney');
+        $index->assertJsonPath('data.2.source', 'cash');
     }
 
-    public function test_expense_with_source_cannot_exceed_selected_source_balance(): void
+    public function test_income_and_expense_update_selected_resource_balance(): void
     {
         $user = User::factory()->create();
         $headers = $this->authHeaders($user);
@@ -43,33 +40,66 @@ class FundingSourcesTest extends TestCase
             'idUser' => $user->idUser,
         ]);
 
-        $this->withHeaders($headers)->postJson('/api/funding-sources', [
-            'name' => 'Cash',
-            'initialBalance' => 100000,
-        ])->assertCreated();
+        $mbanking = Resource::query()->create([
+            'idUser' => $user->idUser,
+            'source' => 'mbanking',
+            'balance' => 0,
+        ]);
 
-        $this->withHeaders($headers)->postJson('/api/funding-sources', [
-            'name' => 'Bank',
-            'initialBalance' => 0,
-        ])->assertCreated();
+        $cash = Resource::query()->create([
+            'idUser' => $user->idUser,
+            'source' => 'cash',
+            'balance' => 100000,
+        ]);
 
-        // Make global balance high via Bank, while Cash remains limited.
         $this->withHeaders($headers)->postJson('/api/transactions', [
             'type' => 'income',
             'amount' => 1000000,
-            'source' => 'Bank',
+            'idResource' => $mbanking->idResource,
         ])->assertCreated();
 
-        $response = $this->withHeaders($headers)->postJson('/api/transactions', [
+        $this->assertSame(1000000.0, (float) Resource::query()->findOrFail($mbanking->idResource)->balance);
+
+        $expense = $this->withHeaders($headers)->postJson('/api/transactions', [
             'type' => 'expense',
             'amount' => 200000,
             'idCategory' => $category->idCategory,
-            'source' => 'Cash',
+            'idResource' => $cash->idResource,
+        ]);
+
+        $expense->assertStatus(422);
+        $expense->assertJsonPath('message', 'Insufficient balance for selected resource');
+        $expense->assertJsonPath('source', 'cash');
+
+        $this->withHeaders($headers)->postJson('/api/transactions', [
+            'type' => 'expense',
+            'amount' => 250000,
+            'idCategory' => $category->idCategory,
+            'idResource' => $mbanking->idResource,
+        ])->assertCreated();
+
+        $this->assertSame(750000.0, (float) Resource::query()->findOrFail($mbanking->idResource)->balance);
+    }
+
+    public function test_income_cannot_use_cash_resource(): void
+    {
+        $user = User::factory()->create();
+        $headers = $this->authHeaders($user);
+
+        $cash = Resource::query()->create([
+            'idUser' => $user->idUser,
+            'source' => 'cash',
+            'balance' => 0,
+        ]);
+
+        $response = $this->withHeaders($headers)->postJson('/api/transactions', [
+            'type' => 'income',
+            'amount' => 50000,
+            'idResource' => $cash->idResource,
         ]);
 
         $response->assertStatus(422);
-        $response->assertJsonPath('message', 'Insufficient balance for selected funding source');
-        $response->assertJsonPath('source', 'Cash');
+        $response->assertJsonPath('message', 'Income transactions can only be added to mbanking or emoney resources');
     }
 
     private function authHeaders(User $user): array

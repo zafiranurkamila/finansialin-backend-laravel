@@ -145,7 +145,7 @@ class FinancialInsightService
     {
         $limit = min($limit, 20); // Batas aman
 
-        $query = Transaction::with('category:idCategory,name')
+        $query = Transaction::with(['category:idCategory,name', 'resource:idResource,source'])
             ->where('idUser', $userId)
             ->orderByDesc('date');
 
@@ -162,7 +162,7 @@ class FinancialInsightService
                 'date'        => $tx->date->format('Y-m-d'),
                 'time'        => $tx->date->format('H:i'),
                 'description' => $tx->description ?? '-',
-                'source'      => $tx->source ?? 'Manual',
+                'source'      => $tx->resource?->source ?? 'Manual',
             ];
         });
 

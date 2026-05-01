@@ -23,13 +23,14 @@ class SubscriptionsController extends Controller
             ->where('type', 'expense')
             ->whereNotNull('date')
             ->where('date', '>=', $start)
+            ->with('resource:idResource,source')
             ->orderBy('date')
             ->get();
 
         $groups = [];
         foreach ($expenses as $tx) {
             $description = $this->normalize((string) ($tx->description ?: ''));
-            $source = strtolower(trim((string) ($tx->source ?: 'unknown')));
+            $source = strtolower(trim((string) ($tx->resource?->source ?: 'unknown')));
             $amount = number_format((float) $tx->amount, 2, '.', '');
 
             // If description is empty, use source+amount grouping fallback.
@@ -59,7 +60,7 @@ class SubscriptionsController extends Controller
             $subscriptions[] = [
                 'label' => $this->labelForSubscription($last),
                 'amount' => (float) $last->amount,
-                'source' => $last->source,
+                'source' => $last->resource?->source,
                 'occurrences' => count($items),
                 'avgIntervalDays' => round($intervalDays, 1),
                 'lastChargedAt' => $last->date,
@@ -118,8 +119,8 @@ class SubscriptionsController extends Controller
             return $description;
         }
 
-        if ($tx->source) {
-            return 'Subscription via ' . $tx->source;
+        if ($tx->resource?->source) {
+            return 'Subscription via ' . $tx->resource->source;
         }
 
         return 'Recurring expense';

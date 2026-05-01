@@ -2,8 +2,6 @@
 
 namespace App\Services;
 
-use App\Http\Controllers\ResourceController;
-use App\Models\FundingSource;
 use App\Models\Resource;
 use App\Models\User;
 
@@ -24,19 +22,6 @@ class ResourceService
                 'source' => $type,
                 'balance' => 0,
             ]);
-
-            // Keep funding_sources table in sync for backward compatibility
-            // with existing FundingSources endpoints which reference funding_sources.
-            try {
-                FundingSource::create([
-                    'idUser' => $user->idUser,
-                    'name' => $type,
-                    'initialBalance' => 0,
-                ]);
-            } catch (\Throwable $e) {
-                // Ignore failures here to avoid breaking registration flow if
-                // funding_sources already exist or migrations differ.
-            }
 
             $createdResources[] = $resource;
         }

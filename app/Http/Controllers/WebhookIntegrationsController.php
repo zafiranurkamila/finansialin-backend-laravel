@@ -125,7 +125,6 @@ public function ingestQrisEmail(Request $request): JsonResponse
             'amount' => number_format($amount, 2, '.', ''),
             'description' => $description !== '' ? $description : 'QRIS payment from email automation',
             'date' => $request->filled('paidAt') ? $request->input('paidAt') : now(),
-            'source' => $sourceName !== '' ? $sourceName : 'qris-email-automation',
         ]);
 
         if ($idResource) {

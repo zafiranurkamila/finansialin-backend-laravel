@@ -10,14 +10,19 @@ import re
 import io
 import torch
 from PIL import Image
-
 # Bypass PyTorch 2.6 CVE strict check. Karena kita mengunduh model aman dari clóva oficial hub, ini tidak berisiko.
 import transformers.utils.import_utils
 if hasattr(transformers.utils.import_utils, 'check_torch_load_is_safe'):
     transformers.utils.import_utils.check_torch_load_is_safe = lambda: None
-
 from transformers import DonutProcessor, VisionEncoderDecoderModel
-from schemas import PredictiveBudgetRequest
+import requests
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain.agents import create_agent
+from schemas import PredictiveBudgetRequest, ChatRequest
 
 # Inisialisasi variabel global dengan None
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -48,6 +53,63 @@ async def lifespan(app: FastAPI):
 
 # Pasang lifespan ke instansiasi FastAPI (CUKUP SATU KALI SAJA)
 app = FastAPI(title="Predictive Budgeting AI Service", lifespan=lifespan)
+
+# Load environment variables (GEMINI_API_KEY)
+load_dotenv()
+
+# ==========================================
+# SETUP LANGCHAIN MEMORY & LLM
+# ==========================================
+
+# 1. Dictionary untuk menyimpan riwayat chat sementara (Memory)
+store = {}
+
+def get_session_history(session_id: str):
+    if session_id not in store:
+        store[session_id] = []
+    return store[session_id]
+
+# 2. Inisialisasi Model Gemini
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash", 
+    temperature=0.3, 
+    max_tokens=1024
+)
+
+# 3. Mendefinisikan Tools (Alat untuk AI)
+# Pastikan URL ini sesuai dengan port Laravel kamu (biasanya 8000)
+LARAVEL_API_URL = os.getenv("LARAVEL_API_URL", "http://127.0.0.1:8000/api")
+
+@tool
+def get_user_balance(user_id: int) -> str:
+    """
+    Gunakan alat ini SECARA EKSKLUSIF saat pengguna bertanya tentang total saldo,
+    jumlah uang, sisa uang di dompet, atau rekening mereka.
+    """
+    print(f"[TOOL DIPANGGIL] Mengambil data saldo untuk user_id: {user_id}")
+    try:
+        response = requests.get(f"{LARAVEL_API_URL}/internal/balance", params={"user_id": user_id})
+        if response.status_code == 200:
+            return str(response.json())
+        return "Sistem gagal mengambil data saldo."
+    except Exception as e:
+        return f"Error sistem internal: {str(e)}"
+
+tools = [get_user_balance]
+
+# 4. System Prompt Baru
+system_instruction = """Kamu adalah **Finansialin AI** — asisten keuangan pribadi yang cerdas, empatik, dan proaktif.
+
+Aturan Penting:
+1. Jika pengguna bertanya tentang data keuangan (seperti saldo), KAMU WAJIB menggunakan alat (tools) yang tersedia untuk mencari datanya! Jangan pernah menebak angka.
+2. Gunakan bahasa Indonesia yang kasual, hangat, dan bersahabat (gunakan 'aku' dan 'kamu').
+3. Setelah mendapat data dari tool, sampaikan datanya dengan rapi dan ramah (tambahkan format Rupiah yang benar).
+"""
+
+# 5. Buat Agent menggunakan standar terbaru (LangGraph)
+agent = create_agent(llm, tools, system_prompt=system_instruction)
+
+
 
 def get_last_day_of_month(current_date):
     """Returns the last day of the month for a given datetime object."""
@@ -192,3 +254,45 @@ async def predict_ocr(receiptImage: UploadFile = File(...)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"OCR Processing Error: {str(e)}")
+    
+@app.post("/chat")
+async def chat_endpoint(request: ChatRequest):
+    print(f"-> Menerima pesan dari User {request.user_id} (Session: {request.session_id})")
+    print(f"-> Pesan: {request.message}")
+    
+    # Ambil riwayat percakapan sebelumnya
+    history = get_session_history(request.session_id)
+    
+    # INJEKSI KONTEKS: Kita bisikkan user_id ke AI secara rahasia di dalam prompt
+    # agar AI tidak perlu bertanya lagi ke pengguna.
+    contextual_message = f"[Sistem: Ingat, user_id pengguna yang sedang ngobrol denganmu saat ini adalah {request.user_id}].\n\n{request.message}"
+    
+    # Tambahkan pesan yang sudah diselipkan konteks ini ke dalam history
+    history.append(HumanMessage(content=contextual_message))
+    
+    try:
+        # Eksekusi AI Agent 
+        response = agent.invoke({"messages": history})
+        
+        # Ekstrak balasan AI (Mengatasi format array/list dari LangGraph)
+        raw_content = response["messages"][-1].content
+        if isinstance(raw_content, list):
+            # Jika berupa array, ambil bagian yang ada 'text'-nya saja
+            ai_reply = " ".join([item.get("text", "") for item in raw_content if isinstance(item, dict) and "text" in item])
+        else:
+            # Jika sudah berupa string biasa
+            ai_reply = str(raw_content)
+            
+        print(f"<- Balasan AI: {ai_reply}")
+        
+        # Simpan balasan teks AI yang sudah bersih ke dalam history
+        history.append(AIMessage(content=ai_reply))
+        
+        return {
+            "reply": ai_reply,
+            "type": "text"
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Gagal memproses pesan AI: {str(e)}")

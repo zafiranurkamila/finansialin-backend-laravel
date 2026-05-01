@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Budget;
 use App\Models\Category;
-use App\Models\FundingSource;
 use App\Models\Resource;
 use App\Models\Transaction;
 use App\Models\User;
@@ -13,8 +12,6 @@ use App\Services\ResourceService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
 class TransactionsController extends Controller
@@ -29,7 +26,7 @@ class TransactionsController extends Controller
 
         $transactions = Transaction::query()
             ->where('idUser', $user->idUser)
-            ->with('category:idCategory,name')
+            ->with(['category:idCategory,name', 'resource:idResource,source'])
             ->orderByDesc('date')
             ->paginate($perPage);
 
@@ -52,7 +49,7 @@ class TransactionsController extends Controller
             ->where('idUser', $user->idUser)
             ->where('date', '>=', $start)
             ->where('date', '<', $end)
-            ->with('category:idCategory,name')
+            ->with(['category:idCategory,name', 'resource:idResource,source'])
             ->orderByDesc('date')
             ->get();
 
@@ -70,7 +67,9 @@ class TransactionsController extends Controller
         if ($q !== '') {
             $query->where(function ($builder) use ($q) {
                 $builder->where('description', 'like', '%' . $q . '%')
-                    ->orWhere('source', 'like', '%' . $q . '%');
+                    ->orWhereHas('resource', function ($resourceQuery) use ($q) {
+                        $resourceQuery->where('source', 'like', '%' . $q . '%');
+                    });
             });
         }
 
@@ -85,7 +84,9 @@ class TransactionsController extends Controller
 
         $source = trim((string) $request->query('source', ''));
         if ($source !== '') {
-            $query->where('source', 'like', '%' . $source . '%');
+            $query->whereHas('resource', function ($resourceQuery) use ($source) {
+                $resourceQuery->where('source', 'like', '%' . $source . '%');
+            });
         }
 
         if ($request->filled('minAmount')) {
@@ -119,7 +120,7 @@ class TransactionsController extends Controller
         $perPage = max(1, min(100, $perPage)); // Limit between 1 and 100
 
         $transactions = $query
-            ->with('category:idCategory,name')
+            ->with(['category:idCategory,name', 'resource:idResource,source'])
             ->orderBy($sortBy, $sortOrder)
             ->paginate($perPage);
 
@@ -133,27 +134,22 @@ class TransactionsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
-            'idFundingSource' => ['nullable', 'integer'],
-            'idResource' => ['nullable', 'integer'],
+            'idResource' => ['required', 'integer'],
             'type' => ['required', 'in:income,expense'],
             'amount' => ['required', 'numeric', 'min:0'],
             'description' => ['nullable', 'string'],
             'date' => ['nullable', 'date'],
-            'source' => ['nullable', 'string', 'max:255'],
-            'receiptImage' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
-        if ($request->filled('idResource')) {
-            $resource = $this->resolveResource((int) $user->idUser, (int) $request->input('idResource'));
-            if (!$resource) {
-                return response()->json([
-                    'message' => 'Resource not found',
-                ], 422);
-            }
+        $resource = $this->resolveResource((int) $user->idUser, (int) $request->input('idResource'));
+        if (!$resource) {
+            return response()->json([
+                'message' => 'Resource not found',
+            ], 422);
         }
 
         $category = $this->resolveCategory($user, $request->input('idCategory'));
@@ -172,104 +168,42 @@ class TransactionsController extends Controller
 
         $txType = $request->string('type')->toString();
         $txAmount = (float) $request->input('amount');
-        $sourceName = trim((string) $request->input('source', ''));
-        $fundingSource = null;
+        $allowedIncomeResources = ['mbanking', 'emoney'];
+        if ($txType === 'income' && !in_array(strtolower((string) $resource->source), $allowedIncomeResources, true)) {
+            return response()->json([
+                'message' => 'Income transactions can only be added to mbanking or emoney resources',
+                'allowedResources' => $allowedIncomeResources,
+            ], 422);
+        }
 
-        if ($request->filled('idFundingSource')) {
-            $fundingSource = $this->resolveFundingSourceById((int) $user->idUser, (int) $request->input('idFundingSource'));
-            if (!$fundingSource) {
+        if ($txType === 'expense' && $txAmount > (float) $resource->balance) {
                 return response()->json([
-                    'message' => 'Funding source not found',
+                    'message' => 'Insufficient balance for selected resource',
+                    'availableSourceBalance' => round((float) $resource->balance, 2),
+                    'source' => (string) $resource->source,
                 ], 422);
-            }
-
-            $sourceName = $fundingSource->name;
-        }
-
-        if ($txType === 'expense') {
-            $balance = $this->currentBalance((int) $user->idUser);
-            if ($txAmount > $balance) {
-                return response()->json([
-                    'message' => 'Insufficient balance for this expense',
-                    'currentBalance' => round($balance, 2),
-                ], 422);
-            }
-        }
-
-        if ($sourceName !== '' && !$fundingSource) {
-            $fundingSource = $this->resolveFundingSource((int) $user->idUser, $sourceName);
-            if (!$fundingSource) {
-                return response()->json([
-                    'message' => 'Funding source not found',
-                ], 422);
-            }
-
-            $sourceName = $fundingSource->name;
-        }
-
-        if ($sourceName !== '') {
-            if ($txType === 'expense') {
-                $sourceBalance = $this->sourceBalance((int) $user->idUser, $fundingSource->name, (float) $fundingSource->initialBalance);
-                if ($txAmount > $sourceBalance) {
-                    return response()->json([
-                        'message' => 'Insufficient balance for selected funding source',
-                        'availableSourceBalance' => round($sourceBalance, 2),
-                        'source' => $fundingSource->name,
-                    ], 422);
-                }
-            }
-
-        }
-
-        $receiptImagePath = null;
-        if ($request->hasFile('receiptImage')) {
-            $receiptImagePath = $this->storeReceiptImage($request->file('receiptImage'), $user->idUser);
         }
 
         $transaction = Transaction::create([
             'idUser' => $user->idUser,
             'idCategory' => $category?->idCategory,
-            'idResource' => $request->input('idResource'),
+            'idResource' => $resource->idResource,
             'type' => $txType,
             'amount' => $txAmount,
             'description' => $request->input('description'),
             'date' => $txDate,
-            'source' => $sourceName !== '' ? $sourceName : null,
-            'receiptImagePath' => $receiptImagePath,
         ]);
 
-        // Update resource balance jika idResource ada
-        // If a resource was explicitly provided or the sourceName maps to a Resource,
-        // apply balance changes to that resource. This allows frontends to send
-        // a `source` like "mbanking", "emoney" or "cash" and have the
-        // corresponding resource balance update automatically.
-        $appliedResourceId = null;
-        if (isset($resource) && $resource) {
-            $appliedResourceId = $resource->idResource;
-        } else {
-            // try to resolve resource by source name when idResource not provided
-            if (empty($appliedResourceId) && $sourceName !== '') {
-                $resolved = $this->resolveResourceBySourceName((int) $user->idUser, $sourceName);
-                if ($resolved) {
-                    $appliedResourceId = $resolved->idResource;
-                    // also set idResource on transaction for consistency
-                    $transaction->update(['idResource' => $appliedResourceId]);
-                }
-            }
-        }
-
-        if ($appliedResourceId) {
-            if ($txType === 'income') {
-                ResourceService::addIncomeToResource($appliedResourceId, $txAmount);
-            } elseif ($txType === 'expense') {
-                ResourceService::withdrawFromResource($appliedResourceId, $txAmount);
-            }
+        if ($txType === 'income') {
+            ResourceService::addIncomeToResource($resource->idResource, $txAmount);
+        } elseif ($txType === 'expense') {
+            ResourceService::withdrawFromResource($resource->idResource, $txAmount);
         }
 
         $this->notifyTransaction($user->idUser, $transaction, true);
         $this->checkBudgetWarning($user, $transaction);
 
-        return response()->json($transaction, 201);
+        return response()->json($transaction->fresh(['resource:idResource,source']), 201);
     }
 
     public function show(Request $request, int $id): JsonResponse
@@ -286,7 +220,7 @@ class TransactionsController extends Controller
             return response()->json(['error' => 'Not allowed'], 403);
         }
 
-        return response()->json($transaction);
+        return response()->json($transaction->load(['category:idCategory,name', 'resource:idResource,source']));
     }
 
     public function update(Request $request, int $id): JsonResponse
@@ -305,21 +239,18 @@ class TransactionsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
-            'idFundingSource' => ['nullable', 'integer'],
             'idResource' => ['nullable', 'integer'],
             'type' => ['nullable', 'in:income,expense'],
             'amount' => ['nullable', 'numeric', 'min:0'],
             'description' => ['nullable', 'string'],
             'date' => ['nullable', 'date'],
-            'source' => ['nullable', 'string', 'max:255'],
-            'receiptImage' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
-            'removeReceiptImage' => ['nullable', 'boolean'],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
+        $resource = null;
         if ($request->filled('idResource')) {
             $resource = $this->resolveResource((int) $user->idUser, (int) $request->input('idResource'));
             if (!$resource) {
@@ -340,86 +271,51 @@ class TransactionsController extends Controller
             }
         }
 
-        $receiptImagePath = $transaction->receiptImagePath;
-        $removeReceiptImage = $request->boolean('removeReceiptImage');
-
         $nextType = $request->input('type', $transaction->type);
         $nextAmount = (float) $request->input('amount', $transaction->amount);
-        $nextSourceName = $request->has('source')
-            ? trim((string) $request->input('source', ''))
-            : trim((string) ($transaction->source ?? ''));
 
-        $fundingSource = null;
-        if ($request->filled('idFundingSource')) {
-            $fundingSource = $this->resolveFundingSourceById((int) $user->idUser, (int) $request->input('idFundingSource'));
-            if (!$fundingSource) {
-                return response()->json([
-                    'message' => 'Funding source not found',
-                ], 422);
-            }
-            $nextSourceName = $fundingSource->name;
-        } elseif ($request->has('idFundingSource')) {
-            $nextSourceName = '';
-        }
+        $newResId = $request->has('idResource')
+            ? ($request->filled('idResource') ? (int) $request->input('idResource') : null)
+            : ($transaction->idResource ? (int) $transaction->idResource : null);
 
-        if ($nextSourceName !== '' && !$fundingSource) {
-            $fundingSource = $this->resolveFundingSource((int) $user->idUser, $nextSourceName);
-            if (!$fundingSource) {
+        if ($newResId !== null) {
+            $resource = $this->resolveResource((int) $user->idUser, $newResId);
+            if (!$resource) {
                 return response()->json([
-                    'message' => 'Funding source not found',
-                ], 422);
-            }
-            $nextSourceName = $fundingSource->name;
-        }
-
-        if ($nextType === 'expense') {
-            $balance = $this->currentBalance((int) $user->idUser, (int) $transaction->idTransaction);
-            if ($nextAmount > $balance) {
-                return response()->json([
-                    'message' => 'Insufficient balance for this expense',
-                    'currentBalance' => round($balance, 2),
+                    'message' => 'Resource not found',
                 ], 422);
             }
 
-            if ($fundingSource) {
-                $sourceBalance = $this->sourceBalance(
-                    (int) $user->idUser,
-                    $fundingSource->name,
-                    (float) $fundingSource->initialBalance,
-                    (int) $transaction->idTransaction
-                );
-
-                if ($nextAmount > $sourceBalance) {
+            if ($nextType === 'income') {
+                $allowedIncomeResources = ['mbanking', 'emoney'];
+                if (!in_array(strtolower((string) $resource->source), $allowedIncomeResources, true)) {
                     return response()->json([
-                        'message' => 'Insufficient balance for selected funding source',
-                        'availableSourceBalance' => round($sourceBalance, 2),
-                        'source' => $fundingSource->name,
+                        'message' => 'Income transactions can only be added to mbanking or emoney resources',
+                        'allowedResources' => $allowedIncomeResources,
                     ], 422);
                 }
             }
+
         }
 
-        if ($removeReceiptImage && $receiptImagePath) {
-            Storage::disk('public')->delete($receiptImagePath);
-            $receiptImagePath = null;
-        }
+        if ($nextType === 'expense' && $resource) {
+            $sourceBalance = $this->availableResourceBalanceForUpdate($resource, $transaction);
 
-        if ($request->hasFile('receiptImage')) {
-            if ($receiptImagePath) {
-                Storage::disk('public')->delete($receiptImagePath);
+            if ($nextAmount > $sourceBalance) {
+                return response()->json([
+                    'message' => 'Insufficient balance for selected resource',
+                    'availableSourceBalance' => round($sourceBalance, 2),
+                    'source' => (string) $resource->source,
+                ], 422);
             }
-            $receiptImagePath = $this->storeReceiptImage($request->file('receiptImage'), $user->idUser);
         }
 
-        // Handle resource balance adjustment
         $oldResId = $transaction->idResource;
         $oldAmount = $transaction->amount;
         $oldType = $transaction->type;
-        $newResId = $request->filled('idResource') ? $request->input('idResource') : $oldResId;
         $newAmount = $nextAmount;
         $newType = $nextType;
 
-        // Undo old resource transaction
         if ($oldResId) {
             if ($oldType === 'income') {
                 ResourceService::withdrawFromResource($oldResId, $oldAmount);
@@ -437,11 +333,8 @@ class TransactionsController extends Controller
             'date' => $request->has('date')
                 ? $this->parseInputDateTime((string) $request->input('date'))
                 : $transaction->date,
-            'source' => $nextSourceName !== '' ? $nextSourceName : null,
-            'receiptImagePath' => $receiptImagePath,
         ]);
 
-        // Apply new resource transaction
         if ($newResId) {
             if ($newType === 'income') {
                 ResourceService::addIncomeToResource($newResId, $newAmount);
@@ -450,7 +343,7 @@ class TransactionsController extends Controller
             }
         }
 
-        return response()->json($transaction->fresh());
+        return response()->json($transaction->fresh(['resource:idResource,source']));
     }
 
     public function destroy(Request $request, int $id): JsonResponse
@@ -467,7 +360,6 @@ class TransactionsController extends Controller
             return response()->json(['message' => 'Not allowed'], 403);
         }
 
-        // Undo resource balance
         if ($transaction->idResource) {
             if ($transaction->type === 'income') {
                 ResourceService::withdrawFromResource($transaction->idResource, $transaction->amount);
@@ -575,48 +467,6 @@ class TransactionsController extends Controller
         return CarbonImmutable::parse($input)->utc();
     }
 
-    private function storeReceiptImage(UploadedFile $file, int $userId): string
-    {
-        return $file->store('receipts/' . $userId, 'public');
-    }
-
-    private function currentBalance(int $userId, ?int $excludeTransactionId = null): float
-    {
-        $incomeQuery = Transaction::query()
-            ->where('idUser', $userId)
-            ->where('type', 'income');
-
-        $expenseQuery = Transaction::query()
-            ->where('idUser', $userId)
-            ->where('type', 'expense');
-
-        if ($excludeTransactionId !== null) {
-            $incomeQuery->where('idTransaction', '!=', $excludeTransactionId);
-            $expenseQuery->where('idTransaction', '!=', $excludeTransactionId);
-        }
-
-        $income = (float) $incomeQuery->sum('amount');
-        $expense = (float) $expenseQuery->sum('amount');
-
-        return $income - $expense;
-    }
-
-    private function resolveFundingSource(int $userId, string $sourceName): ?FundingSource
-    {
-        return FundingSource::query()
-            ->where('idUser', $userId)
-            ->whereRaw('LOWER(name) = ?', [strtolower($sourceName)])
-            ->first();
-    }
-
-    private function resolveFundingSourceById(int $userId, int $fundingSourceId): ?FundingSource
-    {
-        return FundingSource::query()
-            ->where('idUser', $userId)
-            ->where('idFundingSource', $fundingSourceId)
-            ->first();
-    }
-
     private function resolveResource(int $userId, int $resourceId): ?Resource
     {
         return Resource::query()
@@ -625,34 +475,20 @@ class TransactionsController extends Controller
             ->first();
     }
 
-    private function resolveResourceBySourceName(int $userId, string $sourceName): ?Resource
+    private function availableResourceBalanceForUpdate(Resource $resource, Transaction $existingTransaction): float
     {
-        return Resource::query()
-            ->where('idUser', $userId)
-            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
-            ->first();
-    }
+        $balance = (float) $resource->balance;
 
-    private function sourceBalance(int $userId, string $sourceName, float $initialBalance, ?int $excludeTransactionId = null): float
-    {
-        $incomeQuery = Transaction::query()
-            ->where('idUser', $userId)
-            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
-            ->where('type', 'income');
+        if ((int) $existingTransaction->idResource === (int) $resource->idResource) {
+            if ($existingTransaction->type === 'income') {
+                $balance -= (float) $existingTransaction->amount;
+            }
 
-        $expenseQuery = Transaction::query()
-            ->where('idUser', $userId)
-            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
-            ->where('type', 'expense');
-
-        if ($excludeTransactionId !== null) {
-            $incomeQuery->where('idTransaction', '!=', $excludeTransactionId);
-            $expenseQuery->where('idTransaction', '!=', $excludeTransactionId);
+            if ($existingTransaction->type === 'expense') {
+                $balance += (float) $existingTransaction->amount;
+            }
         }
 
-        $income = (float) $incomeQuery->sum('amount');
-        $expense = (float) $expenseQuery->sum('amount');
-
-        return round($initialBalance + $income - $expense, 2);
+        return round($balance, 2);
     }
 }

@@ -3,7 +3,6 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BudgetsController;
 use App\Http\Controllers\CategoriesController;
-use App\Http\Controllers\FundingSourcesController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\PreferencesController;
 use App\Http\Controllers\SecurityController;
@@ -62,11 +61,6 @@ Route::middleware('token.auth')->group(function (): void {
     Route::put('/categories/{id}', [CategoriesController::class, 'update']);
     Route::delete('/categories/{id}', [CategoriesController::class, 'destroy']);
 
-    Route::get('/funding-sources', [FundingSourcesController::class, 'index']);
-    Route::post('/funding-sources', [FundingSourcesController::class, 'store']);
-    Route::put('/funding-sources/{id}', [FundingSourcesController::class, 'update']);
-    Route::delete('/funding-sources/{id}', [FundingSourcesController::class, 'destroy']);
-
     Route::get('/transactions', [TransactionsController::class, 'index']);
     Route::get('/transactions/search', [TransactionsController::class, 'search']);
     Route::post('/transactions', [TransactionsController::class, 'store']);
@@ -111,4 +105,7 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/resources/summary', [ResourceController::class, 'summary']);
     Route::get('/resources', [ResourceController::class, 'index']);
     Route::get('/resources/{idResource}', [ResourceController::class, 'show']);
+    
+    Route::post('/chat', [ChatbotController::class, 'chat']);
+    Route::get('/internal/balance', [\App\Http\Controllers\ChatbotController::class, 'internalGetBalance']);
 });

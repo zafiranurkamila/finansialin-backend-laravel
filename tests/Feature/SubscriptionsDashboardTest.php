@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AuthToken;
+use App\Models\Resource;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,31 +16,36 @@ class SubscriptionsDashboardTest extends TestCase
     public function test_dashboard_detects_monthly_recurring_subscriptions(): void
     {
         $user = User::factory()->create();
+        $resource = Resource::query()->create([
+            'idUser' => $user->idUser,
+            'source' => 'cash',
+            'balance' => 500000,
+        ]);
 
         Transaction::query()->create([
             'idUser' => $user->idUser,
+            'idResource' => $resource->idResource,
             'type' => 'expense',
             'amount' => 149000,
             'description' => 'Netflix',
-            'source' => 'BCA',
             'date' => now()->subDays(90),
         ]);
 
         Transaction::query()->create([
             'idUser' => $user->idUser,
+            'idResource' => $resource->idResource,
             'type' => 'expense',
             'amount' => 149000,
             'description' => 'Netflix',
-            'source' => 'BCA',
             'date' => now()->subDays(60),
         ]);
 
         Transaction::query()->create([
             'idUser' => $user->idUser,
+            'idResource' => $resource->idResource,
             'type' => 'expense',
             'amount' => 149000,
             'description' => 'Netflix',
-            'source' => 'BCA',
             'date' => now()->subDays(30),
         ]);
 

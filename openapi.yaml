@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: >
     Dokumentasi Swagger (OpenAPI 3.0) untuk aplikasi backend Finansialin (Laravel).
-    Berisi dokumentasi untuk endpoint Auth, Users, Categories, Funding Sources, 
+    Berisi dokumentasi untuk endpoint Auth, Users, Categories, Resources,
     Transactions, Budgets, Notifications, Insights, Subscriptions, dan Webhooks.
 servers:
   - url: "http://127.0.0.1:8000/api"
@@ -20,8 +20,8 @@ tags:
     description: Manajemen profil dan password pengguna
   - name: Categories
     description: Manajemen kategori transaksi (default & user-specific)
-  - name: Funding Sources
-    description: Manajemen sumber dana / dompet
+  - name: Resources
+    description: Manajemen dompet dan saldo
   - name: Transactions
     description: Pencatatan dan pencarian transaksi (income/expense)
   - name: Budgets
@@ -770,107 +770,90 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /funding-sources:
+  /resources:
     get:
       tags:
-        - Funding Sources
-      summary: Get All Funding Sources
-      description: Menampilkan daftar Funding Sources (dompet/bank) milik user.
+        - Resources
+      summary: Get All Resources
+      description: Menampilkan daftar resources (dompet/saldo) milik user.
       security:
         - BearerAuth: []
       responses:
         "200":
-          description: Funding Sources List
+          description: Resource list
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/FundingSource"
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Daftar resources berhasil diambil"
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Resource"
 
-    post:
+  /resources/{idResource}:
+    get:
       tags:
-        - Funding Sources
-      summary: Create Funding Source
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - name
-              properties:
-                name:
-                  type: string
-                  example: "BCA"
-                initialBalance:
-                  type: number
-                  example: 1000000
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FundingSource"
-      security:
-        - BearerAuth: []
-
-  /funding-sources/{id}:
-    put:
-      tags:
-        - Funding Sources
-      summary: Update Funding Source
+        - Resources
+      summary: Get Resource Detail
       parameters:
         - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                  example: "BCA Utama"
-                initialBalance:
-                  type: number
-                  example: 1500000
-      responses:
-        "200":
-          description: Success
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FundingSource"
-      security:
-        - BearerAuth: []
-
-    delete:
-      tags:
-        - Funding Sources
-      summary: Delete Funding Source
-      description: "Akan gagal (409) jika Funding Source telah digunakan dalam transaksi."
-      parameters:
-        - in: path
-          name: id
+          name: idResource
           required: true
           schema:
             type: integer
       responses:
         "200":
-          description: Deleted
-        "409":
-          description: Source is in-use by transactions
+          description: Resource detail
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Detail resource berhasil diambil"
+                  data:
+                    $ref: "#/components/schemas/Resource"
+        "404":
+          description: Resource not found
+      security:
+        - BearerAuth: []
+
+  /resources/summary:
+    get:
+      tags:
+        - Resources
+      summary: Get Resource Summary
+      responses:
+        "200":
+          description: Resource summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Ringkasan resources berhasil diambil"
+                  data:
+                    type: object
+                    properties:
+                      resources:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Resource"
+                      totalBalance:
+                        type: number
+                        example: 2500000
+                      resourceCount:
+                        type: integer
+                        example: 3
+      security:
+        - BearerAuth: []
 
   /transactions:
     get:
@@ -902,13 +885,14 @@ paths:
             schema:
               type: object
               required:
+                - idResource
                 - type
                 - amount
               properties:
                 idCategory:
                   type: integer
                   example: 5
-                idFundingSource:
+                idResource:
                   type: integer
                   example: 2
                 type:
@@ -925,17 +909,6 @@ paths:
                   type: string
                   format: date-time
                   example: "2024-05-15 12:30:00"
-                source:
-                  type: string
-                  description: >-
-                    Backward compatibility property. If the `source` value matches a
-                    resource name (e.g. "mbanking", "emoney", "cash"), the
-                    corresponding resource balance will be updated automatically.
-                  example: "mbanking"
-                receiptImage:
-                  type: string
-                  format: binary
-                  description: "Image file <= 4MB (jpg, jpeg, png, webp)"
       responses:
         "201":
           description: Created
@@ -969,6 +942,7 @@ paths:
           name: source
           schema:
             type: string
+          description: Filter by linked resource source name (for example `mbanking`, `emoney`, `cash`).
         - in: query
           name: minAmount
           schema:
@@ -1084,7 +1058,7 @@ paths:
               properties:
                 idCategory:
                   type: integer
-                idFundingSource:
+                idResource:
                   type: integer
                 type:
                   type: string
@@ -1096,14 +1070,6 @@ paths:
                 date:
                   type: string
                   format: date-time
-                source:
-                  type: string
-                receiptImage:
-                  type: string
-                  format: binary
-                removeReceiptImage:
-                  type: boolean
-                  example: false
       responses:
         "200":
           description: Updated
@@ -1796,21 +1762,21 @@ components:
           type: string
           example: "expense"
 
-    FundingSource:
+    Resource:
       type: object
       properties:
         id:
           type: integer
-        idFundingSource:
+        idResource:
           type: integer
-        name:
+        idUser:
+          type: integer
+        source:
           type: string
-          example: "BCA"
-        initialBalance:
+          example: "cash"
+        balance:
           type: number
-          example: 0
-        availableBalance:
-          type: number
+          description: "Current wallet balance maintained by the backend when transactions are created, updated, or deleted."
           example: 150000
 
     Transaction:
@@ -1821,7 +1787,7 @@ components:
         idCategory:
           type: integer
           nullable: true
-        idFundingSource:
+        idResource:
           type: integer
           nullable: true
         type:
@@ -1836,12 +1802,8 @@ components:
         date:
           type: string
           format: date-time
-        source:
-          type: string
-          nullable: true
-        receiptImage:
-          type: string
-          nullable: true
+        resource:
+          $ref: "#/components/schemas/Resource"
 
     Budget:
       type: object

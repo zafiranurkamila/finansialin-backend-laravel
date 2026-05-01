@@ -10,3 +10,8 @@ class PredictiveBudgetRequest(BaseModel):
     budget: float
     payday_date: int
     expenses: List[ExpenseRecord]
+
+class ChatRequest(BaseModel):
+    user_id: int
+    session_id: str
+    message: str
