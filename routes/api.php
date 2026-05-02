@@ -3,7 +3,6 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BudgetsController;
 use App\Http\Controllers\CategoriesController;
-use App\Http\Controllers\FundingSourcesController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\PreferencesController;
 use App\Http\Controllers\SecurityController;
@@ -64,11 +63,6 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/categories/{id}', [CategoriesController::class, 'show']);
     Route::put('/categories/{id}', [CategoriesController::class, 'update']);
     Route::delete('/categories/{id}', [CategoriesController::class, 'destroy']);
-
-    Route::get('/funding-sources', [FundingSourcesController::class, 'index']);
-    Route::post('/funding-sources', [FundingSourcesController::class, 'store']);
-    Route::put('/funding-sources/{id}', [FundingSourcesController::class, 'update']);
-    Route::delete('/funding-sources/{id}', [FundingSourcesController::class, 'destroy']);
 
     Route::get('/transactions', [TransactionsController::class, 'index']);
     Route::get('/transactions/search', [TransactionsController::class, 'search']);
