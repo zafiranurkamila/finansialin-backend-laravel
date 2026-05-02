@@ -26,7 +26,7 @@ class FundingSourcesController extends Controller
                     'idUser' => $source->idUser,
                     'name' => $source->name,
                     'initialBalance' => (float) $source->initialBalance,
-                    'availableBalance' => $this->availableBalance((int) $user->idUser, $source->name, (float) $source->initialBalance),
+                    'availableBalance' => $this->availableBalance((int) $user->idUser, (int) $source->idFundingSource, (float) $source->initialBalance),
                     'createdAt' => $source->createdAt,
                     'updatedAt' => $source->updatedAt,
                 ];
@@ -73,7 +73,7 @@ class FundingSourcesController extends Controller
             'idUser' => $source->idUser,
             'name' => $source->name,
             'initialBalance' => (float) $source->initialBalance,
-            'availableBalance' => $this->availableBalance((int) $user->idUser, $source->name, (float) $source->initialBalance),
+            'availableBalance' => $this->availableBalance((int) $user->idUser, (int) $source->idFundingSource, (float) $source->initialBalance),
             'createdAt' => $source->createdAt,
             'updatedAt' => $source->updatedAt,
         ], 201);
@@ -124,7 +124,7 @@ class FundingSourcesController extends Controller
             'idUser' => $source->idUser,
             'name' => $source->name,
             'initialBalance' => (float) $source->initialBalance,
-            'availableBalance' => $this->availableBalance((int) $user->idUser, $source->name, (float) $source->initialBalance),
+            'availableBalance' => $this->availableBalance((int) $user->idUser, (int) $source->idFundingSource, (float) $source->initialBalance),
             'createdAt' => $source->createdAt,
             'updatedAt' => $source->updatedAt,
         ]);
@@ -154,20 +154,21 @@ class FundingSourcesController extends Controller
         return response()->json(['message' => 'Funding source deleted']);
     }
 
-    private function availableBalance(int $userId, string $sourceName, float $initialBalance): float
+    private function availableBalance(int $userId, int $idFundingSource, float $initialBalance): float
     {
-        $income = (float) Transaction::query()
-            ->where('idUser', $userId)
-            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
+        $source = \App\Models\FundingSource::find($idFundingSource);
+        if (!$source) return $initialBalance;
+
+        $income = \App\Models\Transaction::where('idUser', $userId)
+            ->whereRaw('LOWER(source) = ?', [strtolower($source->name)])
             ->where('type', 'income')
             ->sum('amount');
 
-        $expense = (float) Transaction::query()
-            ->where('idUser', $userId)
-            ->whereRaw('LOWER(source) = ?', [strtolower($sourceName)])
+        $expense = \App\Models\Transaction::where('idUser', $userId)
+            ->whereRaw('LOWER(source) = ?', [strtolower($source->name)])
             ->where('type', 'expense')
             ->sum('amount');
-
-        return round($initialBalance + $income - $expense, 2);
+        
+        return round($initialBalance + (float)$income - (float)$expense, 2);
     }
 }

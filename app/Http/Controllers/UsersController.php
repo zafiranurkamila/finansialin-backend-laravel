@@ -46,6 +46,8 @@ class UsersController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => ['nullable', 'string', 'min:2', 'max:100'],
             'email' => ['nullable', 'email', 'max:255'],
+            'occupation' => ['nullable', 'string', 'max:100'],
+            'bio' => ['nullable', 'string', 'max:1000'],
         ]);
 
         if ($validator->fails()) {
@@ -55,36 +57,59 @@ class UsersController extends Controller
         }
 
         $payload = [];
-        if ($request->has('name')) {
-            $payload['name'] = $request->input('name');
-        }
-        if ($request->has('email')) {
-            $newEmail = strtolower((string) $request->input('email'));
+        foreach (['name', 'email', 'occupation', 'bio'] as $field) {
+            if ($request->has($field)) {
+                $val = $request->input($field);
+                if ($field === 'email') {
+                    $newEmail = strtolower((string) $val);
+                    $emailUsed = User::query()
+                        ->where('email', $newEmail)
+                        ->where('idUser', '!=', $user->idUser)
+                        ->exists();
 
-            $emailUsed = User::query()
-                ->where('email', $newEmail)
-                ->where('idUser', '!=', $user->idUser)
-                ->exists();
-
-            if ($emailUsed) {
-                return response()->json([
-                    'message' => 'Email already in use',
-                ], 400);
+                    if ($emailUsed) {
+                        return response()->json(['message' => 'Email already in use'], 400);
+                    }
+                    $payload['email'] = $newEmail;
+                } else {
+                    $payload[$field] = $val;
+                }
             }
-
-            $payload['email'] = $newEmail;
         }
 
         if (!empty($payload)) {
             $user->update($payload);
         }
 
-        return response()->json([
-            'idUser' => $user->idUser,
-            'email' => $user->email,
-            'name' => $user->name,
-            'createdAt' => $user->createdAt,
+        return response()->json($user->fresh());
+    }
+
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $validator = Validator::make($request->all(), [
+            'avatar' => ['required', 'image', 'mimes:jpeg,png,jpg,gif', 'max:2048'],
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => $validator->errors()->first(),
+            ], 422);
+        }
+
+        if ($request->hasFile('avatar')) {
+            $file = $request->file('avatar');
+            $filename = 'avatar_' . $user->idUser . '_' . time() . '.' . $file->getClientOriginalExtension();
+            $path = $file->storeAs('avatars', $filename, 'public');
+            
+            $user->update([
+                'avatar' => asset('storage/' . $path),
+            ]);
+        }
+
+        return response()->json($user->fresh());
     }
 
     public function resetPassword(Request $request): JsonResponse
@@ -131,6 +156,34 @@ class UsersController extends Controller
 
         return response()->json([
             'message' => 'Password updated successfully',
+        ]);
+    }
+
+    public function destroy(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->attributes->get('auth_user');
+
+        $validator = Validator::make($request->all(), [
+            'password' => ['required', 'string'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => $validator->errors()->first(),
+            ], 422);
+        }
+
+        if (!Hash::check($request->string('password')->toString(), $user->password)) {
+            return response()->json([
+                'message' => 'Password konfirmasi salah.',
+            ], 401);
+        }
+
+        $user->delete();
+
+        return response()->json([
+            'message' => 'Akun Anda telah berhasil dihapus.',
         ]);
     }
 }

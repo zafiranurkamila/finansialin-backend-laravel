@@ -359,8 +359,9 @@ class AuthController extends Controller
         $email = $request->string('email')->lower()->toString();
         $user = User::query()->where('email', $email)->first();
 
+        // Standard security practice: return success even if user not found to prevent user enumeration
         $response = [
-            'message' => 'If an account exists with this email, a password reset link has been sent.',
+            'message' => 'Jika akun terdaftar, kode OTP telah dikirim ke email Anda.',
             'success' => true,
         ];
 
@@ -368,25 +369,22 @@ class AuthController extends Controller
             return response()->json($response);
         }
 
-        $token = Password::broker()->createToken($user);
+        $otp = SecurityOtp::issue($user, 'password_reset', 10);
         $mailWarning = null;
 
         try {
-            $this->sendResetPasswordMail($user, $token);
+            $this->sendOtpMail($user->email, 'Kode OTP Reset Password Finansialin', $otp['code']);
         } catch (Throwable $exception) {
-            Log::error('Failed to send reset password email.', [
+            Log::error('Failed to send reset password OTP.', [
                 'email' => $user->email,
                 'error' => $exception->getMessage(),
             ]);
 
-            $mailWarning = 'Reset token generated, but email could not be sent right now.';
+            $mailWarning = 'OTP generated, but email could not be sent right now.';
         }
 
         if ($this->shouldExposeDebugToken()) {
-            $response['reset'] = [
-                'token' => $token,
-                'email' => $email,
-            ];
+            $response['debugOtp'] = $otp['code'];
         }
 
         if ($mailWarning !== null) {
@@ -400,7 +398,7 @@ class AuthController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'email' => ['required', 'email'],
-            'token' => ['required', 'string'],
+            'code' => ['required', 'digits:6'],
             'password' => ['required', 'string', 'min:6'],
         ]);
 
@@ -410,28 +408,32 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $status = Password::broker()->reset([
-            'email' => $request->string('email')->lower()->toString(),
-            'token' => $request->string('token')->toString(),
-            'password' => $request->string('password')->toString(),
-        ], function (User $user, string $password): void {
-            $user->forceFill([
-                'password' => Hash::make($password),
-            ])->save();
+        $email = $request->string('email')->lower()->toString();
+        $user = User::query()->where('email', $email)->first();
 
-            UserNotification::create([
-                'idUser' => $user->idUser,
-                'type' => 'PASSWORD_RESET',
-                'read' => false,
-                'message' => 'Password Anda telah berhasil direset melalui email.',
-            ]);
-        });
-
-        if ($status !== Password::PASSWORD_RESET) {
+        if (!$user) {
             return response()->json([
-                'message' => 'Invalid or expired reset token',
-            ], 400);
+                'message' => 'User not found',
+            ], 404);
         }
+
+        $ok = SecurityOtp::consume($user, 'password_reset', (string) $request->input('code'));
+        if (!$ok) {
+            return response()->json([
+                'message' => 'Invalid or expired verification code',
+            ], 422);
+        }
+
+        $user->forceFill([
+            'password' => Hash::make($request->string('password')->toString()),
+        ])->save();
+
+        UserNotification::create([
+            'idUser' => $user->idUser,
+            'type' => 'PASSWORD_RESET',
+            'read' => false,
+            'message' => 'Password Anda telah berhasil direset menggunakan kode OTP.',
+        ]);
 
         return response()->json([
             'message' => 'Password reset successful',

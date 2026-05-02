@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use RuntimeException;
 use App\Services\FinancialInsightService;
+use Throwable;
 
 class InsightsController extends Controller
 {
@@ -236,7 +237,38 @@ class InsightsController extends Controller
                 ];
             });
         
+        // Calculate metrics for AI summary
+        $recentTx = Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->where('date', '>=', $now->subDays(30))
+            ->get();
+        
+        $income30 = (float) $recentTx->where('type', 'income')->sum('amount');
+        $expense30 = (float) $recentTx->where('type', 'expense')->sum('amount');
+        $net30 = $income30 - $expense30;
+        
+        $categories = Category::query()->pluck('name', 'idCategory');
+        $expenseByCategory = [];
+        foreach ($recentTx->where('type', 'expense') as $tx) {
+            $catName = $categories[$tx->idCategory] ?? 'Uncategorized';
+            $expenseByCategory[$catName] = ($expenseByCategory[$catName] ?? 0) + (float) $tx->amount;
+        }
+        arsort($expenseByCategory);
+        $topCategory = array_key_first($expenseByCategory);
+        $topCategoryAmount = $topCategory ? (float) $expenseByCategory[$topCategory] : 0.0;
+
+        $summaryData = [
+            'income' => $income30,
+            'expense' => $expense30,
+            'net' => $net30,
+            'topExpenseCategory' => $topCategory,
+            'topExpenseAmount' => $topCategoryAmount,
+        ];
+
+        $aiSummaryText = $this->buildAssistantReply('summary', $summaryData);
+
         return response()->json([
+            'summary' => $aiSummaryText,
             'totalIncome' => round($totalIncome, 2),
             'totalExpense' => round($totalExpense, 2),
             'totalBalance' => round($totalBalance, 2),
@@ -383,13 +415,49 @@ class InsightsController extends Controller
             'contents' => $contents
         ];
 
-        $apiKey = config('services.gemini.api_key');
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$apiKey}";
+        $apiKey = trim((string) config('services.gemini.api_key', ''));
+        if ($apiKey === '') {
+            return response()->json([
+                'message' => 'Gemini API key is missing. Set GEMINI_API_KEY in backend .env, then restart Laravel server.',
+            ], 500);
+        }
 
-        $response = Http::withHeaders(['Content-Type' => 'application/json'])
-            ->post($url, $payload);
+        $verify = true;
+        $caBundle = trim((string) config('services.gemini.ca_bundle', ''));
+        if ($caBundle !== '') {
+            $verify = $caBundle;
+        } else {
+            $rawVerify = config('services.gemini.ssl_verify', true);
+            if (is_string($rawVerify)) {
+                $verify = !in_array(strtolower(trim($rawVerify)), ['0', 'false', 'off', 'no'], true);
+            } else {
+                $verify = (bool) $rawVerify;
+            }
+        }
 
-        $data = $response->json();
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}";
+
+        try {
+            $http = Http::withHeaders(['Content-Type' => 'application/json'])
+                ->withOptions(['verify' => $verify])
+                ->timeout(30);
+
+            $response = $http->post($url, $payload);
+            $data = $response->json();
+        } catch (Throwable $e) {
+            $msg = $e->getMessage();
+            if (str_contains(strtolower($msg), 'ssl certificate problem')) {
+                return response()->json([
+                    'message' => 'SSL certificate validation failed when calling Gemini. Set GEMINI_CA_BUNDLE in backend .env to your cacert.pem path and restart Laravel.',
+                    'details' => $msg,
+                ], 502);
+            }
+
+            return response()->json([
+                'message' => 'Failed to connect to Gemini service.',
+                'details' => $msg,
+            ], 502);
+        }
 
         // Cek apakah balasan merupakan Function Call
         if (isset($data['candidates'][0]['content']['parts'][0]['functionCall'])) {
@@ -418,7 +486,6 @@ class InsightsController extends Controller
                         'functionResponse' => [
                             'name' => $functionName,
                             'response' => [
-                                'name' => $functionName,
                                 'content' => $functionResult
                             ]
                         ]
@@ -427,8 +494,7 @@ class InsightsController extends Controller
             ];
 
             // Re-request ke Gemini dengan history dan data balasan
-            $secondResponse = Http::withHeaders(['Content-Type' => 'application/json'])
-                ->post($url, $payload);
+            $secondResponse = $http->post($url, $payload);
 
             $data = $secondResponse->json();
         }

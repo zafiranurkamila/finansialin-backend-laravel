@@ -51,7 +51,9 @@ Route::post('/integrations/qris/email', [WebhookIntegrationsController::class, '
 Route::middleware('token.auth')->group(function (): void {
     Route::patch('/users/name', [UsersController::class, 'updateName']);
     Route::put('/users/profile', [UsersController::class, 'updateProfile']);
+    Route::post('/users/avatar', [UsersController::class, 'uploadAvatar']);
     Route::patch('/users/password', [UsersController::class, 'resetPassword']);
+    Route::delete('/users/account', [UsersController::class, 'destroy']);
     Route::get('/users/preferences', [PreferencesController::class, 'show']);
     Route::put('/users/preferences', [PreferencesController::class, 'update']);
 
@@ -89,8 +91,8 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/notifications', [NotificationsController::class, 'index']);
     Route::get('/notifications/unread', [NotificationsController::class, 'unread']);
     Route::get('/notifications/unread/count', [NotificationsController::class, 'unreadCount']);
-    Route::patch('/notifications/{id}/read', [NotificationsController::class, 'markRead']);
     Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
+    Route::patch('/notifications/{id}/read', [NotificationsController::class, 'markRead']);
 
     Route::get('/insights/assistant', [InsightsController::class, 'assistant']);
     Route::get('/insights/dashboard-summary', [InsightsController::class, 'dashboardSummary']);
@@ -110,5 +112,8 @@ Route::middleware('token.auth')->group(function (): void {
 
     Route::get('/resources/summary', [ResourceController::class, 'summary']);
     Route::get('/resources', [ResourceController::class, 'index']);
+    Route::post('/resources', [ResourceController::class, 'store']);
     Route::get('/resources/{idResource}', [ResourceController::class, 'show']);
+    Route::put('/resources/{idResource}', [ResourceController::class, 'update']);
+    Route::delete('/resources/{idResource}', [ResourceController::class, 'destroy']);
 });

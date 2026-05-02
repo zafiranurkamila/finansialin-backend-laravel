@@ -186,15 +186,15 @@ class TransactionsController extends Controller
             $sourceName = $fundingSource->name;
         }
 
-        if ($txType === 'expense') {
-            $balance = $this->currentBalance((int) $user->idUser);
-            if ($txAmount > $balance) {
-                return response()->json([
-                    'message' => 'Insufficient balance for this expense',
-                    'currentBalance' => round($balance, 2),
-                ], 422);
-            }
-        }
+        // if ($txType === 'expense') {
+        //     $balance = $this->currentBalance((int) $user->idUser);
+        //     if ($txAmount > $balance) {
+        //         return response()->json([
+        //             'message' => 'Insufficient balance for this expense',
+        //             'currentBalance' => round($balance, 2),
+        //         ], 422);
+        //     }
+        // }
 
         if ($sourceName !== '' && !$fundingSource) {
             $fundingSource = $this->resolveFundingSource((int) $user->idUser, $sourceName);
@@ -207,19 +207,18 @@ class TransactionsController extends Controller
             $sourceName = $fundingSource->name;
         }
 
-        if ($sourceName !== '') {
-            if ($txType === 'expense') {
-                $sourceBalance = $this->sourceBalance((int) $user->idUser, $fundingSource->name, (float) $fundingSource->initialBalance);
-                if ($txAmount > $sourceBalance) {
-                    return response()->json([
-                        'message' => 'Insufficient balance for selected funding source',
-                        'availableSourceBalance' => round($sourceBalance, 2),
-                        'source' => $fundingSource->name,
-                    ], 422);
-                }
-            }
-
-        }
+        // if ($sourceName !== '') {
+        //     if ($txType === 'expense') {
+        //         $sourceBalance = $this->sourceBalance((int) $user->idUser, $fundingSource->name, (float) $fundingSource->initialBalance);
+        //         if ($txAmount > $sourceBalance) {
+        //             return response()->json([
+        //                 'message' => 'Insufficient balance for selected funding source',
+        //                 'availableSourceBalance' => round($sourceBalance, 2),
+        //                 'source' => $fundingSource->name,
+        //             ], 422);
+        //         }
+        //     }
+        // }
 
         $receiptImagePath = null;
         if ($request->hasFile('receiptImage')) {
@@ -353,32 +352,32 @@ class TransactionsController extends Controller
             $nextSourceName = $fundingSource->name;
         }
 
-        if ($nextType === 'expense') {
-            $balance = $this->currentBalance((int) $user->idUser, (int) $transaction->idTransaction);
-            if ($nextAmount > $balance) {
-                return response()->json([
-                    'message' => 'Insufficient balance for this expense',
-                    'currentBalance' => round($balance, 2),
-                ], 422);
-            }
+        // if ($nextType === 'expense') {
+        //     $balance = $this->currentBalance((int) $user->idUser, (int) $transaction->idTransaction);
+        //     if ($nextAmount > $balance) {
+        //         return response()->json([
+        //             'message' => 'Insufficient balance for this expense',
+        //             'currentBalance' => round($balance, 2),
+        //         ], 422);
+        //     }
 
-            if ($fundingSource) {
-                $sourceBalance = $this->sourceBalance(
-                    (int) $user->idUser,
-                    $fundingSource->name,
-                    (float) $fundingSource->initialBalance,
-                    (int) $transaction->idTransaction
-                );
+        //     if ($fundingSource) {
+        //         $sourceBalance = $this->sourceBalance(
+        //             (int) $user->idUser,
+        //             $fundingSource->name,
+        //             (float) $fundingSource->initialBalance,
+        //             (int) $transaction->idTransaction
+        //         );
 
-                if ($nextAmount > $sourceBalance) {
-                    return response()->json([
-                        'message' => 'Insufficient balance for selected funding source',
-                        'availableSourceBalance' => round($sourceBalance, 2),
-                        'source' => $fundingSource->name,
-                    ], 422);
-                }
-            }
-        }
+        //         if ($nextAmount > $sourceBalance) {
+        //             return response()->json([
+        //                 'message' => 'Insufficient balance for selected funding source',
+        //                 'availableSourceBalance' => round($sourceBalance, 2),
+        //                 'source' => $fundingSource->name,
+        //             ], 422);
+        //         }
+        //     }
+        // }
 
         if ($removeReceiptImage && $receiptImagePath) {
             Storage::disk('public')->delete($receiptImagePath);
@@ -584,10 +583,23 @@ class TransactionsController extends Controller
 
     private function resolveFundingSource(int $userId, string $sourceName): ?FundingSource
     {
-        return FundingSource::query()
+        $source = FundingSource::query()
             ->where('idUser', $userId)
             ->whereRaw('LOWER(name) = ?', [strtolower($sourceName)])
             ->first();
+
+        if (!$source) {
+            $defaults = ['mbanking', 'emoney', 'cash'];
+            if (in_array(strtolower($sourceName), $defaults, true)) {
+                $source = FundingSource::create([
+                    'idUser' => $userId,
+                    'name' => $sourceName,
+                    'initialBalance' => 0,
+                ]);
+            }
+        }
+
+        return $source;
     }
 
     private function resolveFundingSourceById(int $userId, int $fundingSourceId): ?FundingSource

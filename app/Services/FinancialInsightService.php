@@ -18,10 +18,19 @@ class FinancialInsightService
      */
     public function getWalletBalances($userId)
     {
-        // Query to resources table based on idUser
-        return Resource::where('idUser', $userId)
-            ->select('source as wallet_name', 'balance')
-            ->get();
+        // Query to funding_sources table instead of outdated resources table
+        return \App\Models\FundingSource::where('idUser', $userId)
+            ->get()
+            ->map(function($source) use ($userId) {
+                // Calculate actual available balance
+                $income = \App\Models\Transaction::where('idUser', $userId)->where('source', $source->name)->where('type', 'income')->sum('amount');
+                $expense = \App\Models\Transaction::where('idUser', $userId)->where('source', $source->name)->where('type', 'expense')->sum('amount');
+                
+                return [
+                    'wallet_name' => $source->name,
+                    'balance' => round((float)$source->initialBalance + (float)$income - (float)$expense, 2)
+                ];
+            });
     }
 
     /**
