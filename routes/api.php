@@ -49,6 +49,11 @@ Route::post('/integrations/qris/email', [WebhookIntegrationsController::class, '
 
 Route::get('/internal/balance', [\App\Http\Controllers\ChatbotController::class, 'internalGetBalance']);
 Route::get('/internal/recent-transactions', [\App\Http\Controllers\ChatbotController::class, 'internalGetRecentTransactions']);
+Route::get('/internal/budget-status', [\App\Http\Controllers\ChatbotController::class, 'internalGetBudgetStatus']);
+Route::get('/internal/monthly-analytics', [\App\Http\Controllers\ChatbotController::class, 'internalGetMonthlyAnalytics']);
+Route::get('/internal/spending-trend', [\App\Http\Controllers\ChatbotController::class, 'internalGetSpendingTrend']);
+Route::get('/internal/financial-profile', [\App\Http\Controllers\ChatbotController::class, 'internalGetUserFinancialProfile']);
+Route::get('/internal/savings-goals', [\App\Http\Controllers\ChatbotController::class, 'internalGetSavingsGoals']);
 
 Route::middleware('token.auth')->group(function (): void {
     Route::patch('/users/name', [UsersController::class, 'updateName']);
@@ -93,7 +98,7 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/insights/dashboard-summary', [ChatbotController::class, 'dashboardSummary']);
     Route::post('/insights/receipt-ocr', [ChatbotController::class, 'receiptOcr']);
     Route::post('/insights/predict-early-warning', [ChatbotController::class, 'predictEarlyWarning']);
-    Route::post('/insights/chat', [ChatbotController::class, 'chat']);
+
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 
     Route::get('/salaries/summary/overview', [SalaryController::class, 'summary']);

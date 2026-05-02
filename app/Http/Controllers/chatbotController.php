@@ -443,4 +443,97 @@ class ChatbotController extends Controller
             return response()->json(['error' => 'Gagal mengambil data riwayat transaksi'], 500);
         }
     }
+    // Fungsi khusus internal: Status Budget
+    public function internalGetBudgetStatus(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $month = $request->query('month');
+        $year = $request->query('year');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $status = $this->insightService->getBudgetStatus(
+                (int) $userId, 
+                $month ? (int)$month : null, 
+                $year ? (int)$year : null
+            );
+            return response()->json(['status' => 'success', 'data' => $status]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Budget Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data budget'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Analitik Bulanan (Pengeluaran per kategori)
+    public function internalGetMonthlyAnalytics(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $month = $request->query('month');
+        $year = $request->query('year');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $analytics = $this->insightService->getMonthlyAnalytics(
+                (int) $userId, 
+                $month ? (int)$month : null, 
+                $year ? (int)$year : null
+            );
+            return response()->json(['status' => 'success', 'data' => $analytics]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Analytics Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil analitik bulanan'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Tren Pengeluaran
+    public function internalGetSpendingTrend(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $months = $request->query('months', 3); // Default 3 bulan
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $trend = $this->insightService->getSpendingTrend((int) $userId, (int) $months);
+            return response()->json(['status' => 'success', 'data' => $trend]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Trend Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data tren pengeluaran'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Profil Finansial User (Aset & Utang)
+    public function internalGetUserFinancialProfile(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $profile = $this->insightService->getUserFinancialProfile((int) $userId);
+            return response()->json(['status' => 'success', 'data' => $profile]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Profile Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data profil finansial'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Target Tabungan (Savings Goals)
+    public function internalGetSavingsGoals(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $goals = $this->insightService->getSavingsGoals((int) $userId);
+            return response()->json(['status' => 'success', 'data' => $goals]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Savings Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data target tabungan'], 500);
+        }
+    }
+    
 }
