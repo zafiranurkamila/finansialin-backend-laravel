@@ -14,9 +14,10 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 use RuntimeException;
 use App\Services\FinancialInsightService;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class InsightsController extends Controller
+class ChatbotController extends Controller
 {
     public function assistant(Request $request): JsonResponse
     {
@@ -411,8 +412,11 @@ class InsightsController extends Controller
 
         $payload = [
             'system_instruction' => $systemInstruction,
-            'tools' => $tools,
-            'contents' => $contents
+            'tools'              => $tools,
+            'tool_config'        => [
+                'function_calling_config' => ['mode' => 'AUTO'],
+            ],
+            'contents' => $contents,
         ];
 
         $apiKey = trim((string) config('services.gemini.api_key', ''));
@@ -435,15 +439,22 @@ class InsightsController extends Controller
             }
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}";
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$apiKey}";
 
         try {
             $http = Http::withHeaders(['Content-Type' => 'application/json'])
                 ->withOptions(['verify' => $verify])
-                ->timeout(30);
+                ->timeout(60);
 
             $response = $http->post($url, $payload);
             $data = $response->json();
+
+            if ($response->failed()) {
+                return response()->json([
+                    'message' => 'Gemini API Error (1st request)',
+                    'details' => $data,
+                ], $response->status());
+            }
         } catch (Throwable $e) {
             $msg = $e->getMessage();
             if (str_contains(strtolower($msg), 'ssl certificate problem')) {
@@ -459,50 +470,179 @@ class InsightsController extends Controller
             ], 502);
         }
 
-        // Cek apakah balasan merupakan Function Call
-        if (isset($data['candidates'][0]['content']['parts'][0]['functionCall'])) {
-            $functionCall = $data['candidates'][0]['content']['parts'][0]['functionCall'];
-            $functionName = $functionCall['name'];
-            $args = $functionCall['args'] ?? [];
-
-            $functionResult = null;
-
-            if ($functionName === 'getWalletBalances') {
-                $functionResult = $service->getWalletBalances($userId);
-            } elseif ($functionName === 'getMonthlyAnalytics') {
-                $functionResult = $service->getMonthlyAnalytics($userId, $args['month'] ?? null, $args['year'] ?? null);
-            } elseif ($functionName === 'getBudgetStatus') {
-                $functionResult = $service->getBudgetStatus($userId, $args['month'] ?? null, $args['year'] ?? null);
-            } elseif ($functionName === 'getRecentTransactions') {
-                $functionResult = $service->getRecentTransactions($userId, $args['limit'] ?? 5);
+        // ── Scan ALL parts for a functionCall ────────────────────────────────
+        // gemini-2.5-flash (thinking model) may emit a text preamble in parts[0]
+        // and put the actual functionCall in parts[1] or later.
+        $parts = $data['candidates'][0]['content']['parts'] ?? [];
+        $functionCallPart = null;
+        foreach ($parts as $part) {
+            if (isset($part['functionCall'])) {
+                $functionCallPart = $part['functionCall'];
+                break;
             }
+        }
 
-            // Membangun payload putaran kedua untuk meneruskan Hasil Fungsi ke Gemini
-            $payload['contents'][] = $data['candidates'][0]['content']; // history dari model (berisi call function)
+        if ($functionCallPart !== null) {
+            $functionName = $functionCallPart['name'];
+            $args         = $functionCallPart['args'] ?? [];
+
+            $functionResult = match ($functionName) {
+                'getWalletBalances'     => $service->getWalletBalances($userId),
+                'getMonthlyAnalytics'   => $service->getMonthlyAnalytics($userId, $args['month'] ?? null, $args['year'] ?? null),
+                'getBudgetStatus'       => $service->getBudgetStatus($userId, $args['month'] ?? null, $args['year'] ?? null),
+                'getRecentTransactions' => $service->getRecentTransactions($userId, $args['limit'] ?? 5),
+                default                 => [],
+            };
+
+            // Round-trip 2: append model turn (with functionCall) + tool result
+            // Fix: PHP json_decode converts {} → [] (empty array). When re-encoded,
+            // [] serialises as a JSON list, but Gemini requires {} (object) for `args`.
+            // We must walk the model content and restore any empty-array `args` to stdClass.
+            $modelContent = $data['candidates'][0]['content'];
+            foreach ($modelContent['parts'] as &$p) {
+                if (isset($p['functionCall']['args']) && is_array($p['functionCall']['args']) && count($p['functionCall']['args']) === 0) {
+                    $p['functionCall']['args'] = new \stdClass();
+                }
+            }
+            unset($p);
+
+            $payload['contents'][] = $modelContent;
             $payload['contents'][] = [
-                'role' => 'user', // Wait! actually gemini needs `role: 'user'` for functionResponse or `role: 'function'`? No, role: 'user' inside Gemini Flash or `role: 'function'`. Actually Gemini Docs prefer role 'function'/part 'functionResponse' but sometimes 'user' with 'functionResponse'.
+                'role'  => 'tool', // 'tool' is required by Gemini v1beta for functionResponse
                 'parts' => [
                     [
                         'functionResponse' => [
-                            'name' => $functionName,
-                            'response' => [
-                                'content' => $functionResult
-                            ]
+                            'name'     => $functionName,
+                            'response' => ['content' => $functionResult],
                         ]
                     ]
-                ]
+                ],
             ];
 
-            // Re-request ke Gemini dengan history dan data balasan
-            $secondResponse = $http->post($url, $payload);
+            // Second Gemini request — now it has real data to compose a final reply
+            try {
+                $secondResponse = $http->post($url, $payload);
+                $data = $secondResponse->json();
 
-            $data = $secondResponse->json();
+                if ($secondResponse->failed()) {
+                    return response()->json([
+                        'message' => 'Gemini API Error (2nd request)',
+                        'details' => $data,
+                    ], $secondResponse->status());
+                }
+            } catch (Throwable $e) {
+                return response()->json([
+                    'message' => 'Failed on second Gemini request.',
+                    'details' => $e->getMessage(),
+                ], 502);
+            }
         }
 
-        $finalAnswer = $data['candidates'][0]['content']['parts'][0]['text'] ?? 'Maaf, aku tidak bisa memproses permintaan saat ini.';
+        // Pick the first non-empty text part from the final response
+        $finalAnswer = 'Maaf, aku tidak bisa memproses permintaan saat ini.';
+        foreach (($data['candidates'][0]['content']['parts'] ?? []) as $part) {
+            if (isset($part['text']) && trim($part['text']) !== '') {
+                $finalAnswer = $part['text'];
+                break;
+            }
+        }
 
         return response()->json([
             'reply' => $finalAnswer
         ]);
     }
+    // Fungsi khusus internal: Status Budget
+    public function internalGetBudgetStatus(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $month = $request->query('month');
+        $year = $request->query('year');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $status = $this->insightService->getBudgetStatus(
+                (int) $userId, 
+                $month ? (int)$month : null, 
+                $year ? (int)$year : null
+            );
+            return response()->json(['status' => 'success', 'data' => $status]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Budget Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data budget'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Analitik Bulanan (Pengeluaran per kategori)
+    public function internalGetMonthlyAnalytics(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $month = $request->query('month');
+        $year = $request->query('year');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $analytics = $this->insightService->getMonthlyAnalytics(
+                (int) $userId, 
+                $month ? (int)$month : null, 
+                $year ? (int)$year : null
+            );
+            return response()->json(['status' => 'success', 'data' => $analytics]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Analytics Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil analitik bulanan'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Tren Pengeluaran
+    public function internalGetSpendingTrend(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $months = $request->query('months', 3); // Default 3 bulan
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $trend = $this->insightService->getSpendingTrend((int) $userId, (int) $months);
+            return response()->json(['status' => 'success', 'data' => $trend]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Trend Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data tren pengeluaran'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Profil Finansial User (Aset & Utang)
+    public function internalGetUserFinancialProfile(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $profile = $this->insightService->getUserFinancialProfile((int) $userId);
+            return response()->json(['status' => 'success', 'data' => $profile]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Profile Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data profil finansial'], 500);
+        }
+    }
+
+    // Fungsi khusus internal: Target Tabungan (Savings Goals)
+    public function internalGetSavingsGoals(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+
+        if (!$userId) return response()->json(['error' => 'user_id is required'], 400);
+
+        try {
+            $goals = $this->insightService->getSavingsGoals((int) $userId);
+            return response()->json(['status' => 'success', 'data' => $goals]);
+        } catch (\Exception $e) {
+            Log::error('Internal API Savings Error', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Gagal mengambil data target tabungan'], 500);
+        }
+    }
+    
 }
+

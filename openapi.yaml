@@ -1478,7 +1478,10 @@ paths:
       tags:
         - Insights
       summary: Auto-Scan Kuitansi (OCR AI Lokal)
-      description: Memindai foto kuitansi untuk mengekstrak Nama Merchant, Total, dan Tanggal menggunakan Vision Model.
+      description: >
+        Endpoint ini digunakan untuk mendukung fitur "Pencatatan Otomatis" dari sebuah kuitansi. 
+        Menggunakan model Vision AI lokal (Donut OCR) untuk memindai foto kuitansi secara otomatis dan mengekstrak informasi krusial seperti Nama Merchant, Total Harga, dan Tanggal transaksi.
+        Data yang dikembalikan dapat langsung digunakan oleh frontend untuk melakukan auto-fill form pencatatan transaksi tanpa input manual dari pengguna.
       requestBody:
         required: true
         content:
@@ -1524,7 +1527,9 @@ paths:
       tags:
         - Insights
       summary: Predictive Budget Early Warning
-      description: Memprediksi apakah pengeluaran pengguna akan melebihi budget di bulan ini menggunakan Prophet Time Series.
+      description: >
+        Memprediksi apakah pengeluaran pengguna akan melebihi budget di bulan ini menggunakan Machine Learning (Time Series Forecasting). 
+        Sistem menganalisis tren pengeluaran harian dan memproyeksikan total pengeluaran di akhir siklus budget. Berguna untuk memberikan peringatan dini kepada user sebelum uang mereka benar-benar habis.
       requestBody:
         required: true
         content:
@@ -1580,7 +1585,10 @@ paths:
     get:
       tags:
         - Insights
-      summary: User AI Assistant
+      summary: User AI Assistant (Summary & Tips)
+      description: >
+        Menghasilkan ringkasan kondisi keuangan, tips hemat, atau peringatan budget untuk dashboard user. 
+        Backend akan mengkalkulasi agregat finansial 30 hari terakhir dan merangkainya menjadi sebuah prompt kontekstual yang kemudian dijawab secara cerdas berdasarkan parameter `prompt`.
       parameters:
         - in: query
           name: prompt
@@ -1609,12 +1617,14 @@ paths:
                     items:
                       type: string
 
-  /insights/chat:
+  /chat:
     post:
       tags:
         - Insights
       summary: Chat with Finansialin AI
-      description: Chat interaktif dengan AI Assistant yang terintegrasi Function Calling untuk menganalisa keuangan (dompet, analitik bulanan, dan budget).
+      description: >
+        Chat interaktif dengan AI Assistant (LLM) yang terintegrasi dengan metode Function Calling (ReAct Agent).
+        AI mampu memanggil fungsi internal sistem secara real-time untuk menjawab pertanyaan user secara akurat, seperti mengecek saldo dompet saat ini, menganalisis pengeluaran bulanan, memantau status budget dan memberikan peringatan, melacak transaksi terbaru, membaca tren pengeluaran dan memberikan profil finansial pengguna.
       requestBody:
         required: true
         content:
@@ -1658,7 +1668,10 @@ paths:
     post:
       tags:
         - Integrations
-      summary: Webhook Receipt QRIS from N8N/Email Engine
+      summary: Webhook Pencatatan Otomatis QRIS/Email
+      description: >
+        Endpoint Webhook yang menerima payload otomatis dari mesin email (seperti N8N atau Zapier) ketika terdapat email notifikasi pembayaran QRIS.
+        Endpoint ini mem-parsing isi data dan secara otomatis melakukan pencatatan transaksi (expense) ke akun pengguna tanpa interaksi manual (Seamless Auto-recording).
       security: []
       parameters:
         - in: header

@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Budget;
 use App\Models\Category;
-use App\Models\FundingSource;
 use App\Models\Resource;
 use App\Models\Transaction;
 use App\Models\User;
@@ -133,7 +132,6 @@ class TransactionsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
-            'idFundingSource' => ['nullable', 'integer'],
             'idResource' => ['nullable', 'integer'],
             'type' => ['required', 'in:income,expense'],
             'amount' => ['required', 'numeric', 'min:0'],
@@ -173,52 +171,6 @@ class TransactionsController extends Controller
         $txType = $request->string('type')->toString();
         $txAmount = (float) $request->input('amount');
         $sourceName = trim((string) $request->input('source', ''));
-        $fundingSource = null;
-
-        if ($request->filled('idFundingSource')) {
-            $fundingSource = $this->resolveFundingSourceById((int) $user->idUser, (int) $request->input('idFundingSource'));
-            if (!$fundingSource) {
-                return response()->json([
-                    'message' => 'Funding source not found',
-                ], 422);
-            }
-
-            $sourceName = $fundingSource->name;
-        }
-
-        // if ($txType === 'expense') {
-        //     $balance = $this->currentBalance((int) $user->idUser);
-        //     if ($txAmount > $balance) {
-        //         return response()->json([
-        //             'message' => 'Insufficient balance for this expense',
-        //             'currentBalance' => round($balance, 2),
-        //         ], 422);
-        //     }
-        // }
-
-        if ($sourceName !== '' && !$fundingSource) {
-            $fundingSource = $this->resolveFundingSource((int) $user->idUser, $sourceName);
-            if (!$fundingSource) {
-                return response()->json([
-                    'message' => 'Funding source not found',
-                ], 422);
-            }
-
-            $sourceName = $fundingSource->name;
-        }
-
-        // if ($sourceName !== '') {
-        //     if ($txType === 'expense') {
-        //         $sourceBalance = $this->sourceBalance((int) $user->idUser, $fundingSource->name, (float) $fundingSource->initialBalance);
-        //         if ($txAmount > $sourceBalance) {
-        //             return response()->json([
-        //                 'message' => 'Insufficient balance for selected funding source',
-        //                 'availableSourceBalance' => round($sourceBalance, 2),
-        //                 'source' => $fundingSource->name,
-        //             ], 422);
-        //         }
-        //     }
-        // }
 
         $receiptImagePath = null;
         if ($request->hasFile('receiptImage')) {
@@ -285,7 +237,6 @@ class TransactionsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
-            'idFundingSource' => ['nullable', 'integer'],
             'idResource' => ['nullable', 'integer'],
             'type' => ['nullable', 'in:income,expense'],
             'amount' => ['nullable', 'numeric', 'min:0'],
@@ -328,29 +279,6 @@ class TransactionsController extends Controller
         $nextSourceName = $request->has('source')
             ? trim((string) $request->input('source', ''))
             : trim((string) ($transaction->source ?? ''));
-
-        $fundingSource = null;
-        if ($request->filled('idFundingSource')) {
-            $fundingSource = $this->resolveFundingSourceById((int) $user->idUser, (int) $request->input('idFundingSource'));
-            if (!$fundingSource) {
-                return response()->json([
-                    'message' => 'Funding source not found',
-                ], 422);
-            }
-            $nextSourceName = $fundingSource->name;
-        } elseif ($request->has('idFundingSource')) {
-            $nextSourceName = '';
-        }
-
-        if ($nextSourceName !== '' && !$fundingSource) {
-            $fundingSource = $this->resolveFundingSource((int) $user->idUser, $nextSourceName);
-            if (!$fundingSource) {
-                return response()->json([
-                    'message' => 'Funding source not found',
-                ], 422);
-            }
-            $nextSourceName = $fundingSource->name;
-        }
 
         // if ($nextType === 'expense') {
         //     $balance = $this->currentBalance((int) $user->idUser, (int) $transaction->idTransaction);
@@ -579,35 +507,6 @@ class TransactionsController extends Controller
         $expense = (float) $expenseQuery->sum('amount');
 
         return $income - $expense;
-    }
-
-    private function resolveFundingSource(int $userId, string $sourceName): ?FundingSource
-    {
-        $source = FundingSource::query()
-            ->where('idUser', $userId)
-            ->whereRaw('LOWER(name) = ?', [strtolower($sourceName)])
-            ->first();
-
-        if (!$source) {
-            $defaults = ['mbanking', 'emoney', 'cash'];
-            if (in_array(strtolower($sourceName), $defaults, true)) {
-                $source = FundingSource::create([
-                    'idUser' => $userId,
-                    'name' => $sourceName,
-                    'initialBalance' => 0,
-                ]);
-            }
-        }
-
-        return $source;
-    }
-
-    private function resolveFundingSourceById(int $userId, int $fundingSourceId): ?FundingSource
-    {
-        return FundingSource::query()
-            ->where('idUser', $userId)
-            ->where('idFundingSource', $fundingSourceId)
-            ->first();
     }
 
     private function resolveResource(int $userId, int $resourceId): ?Resource
