@@ -123,12 +123,14 @@ class ChatbotController extends Controller
             return response()->json(['message' => 'receiptImage is required'], 422);
         }
 
+        $aiServiceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
+
         try {
-            $response = Http::attach(
-                'receiptImage', 
-                file_get_contents($file->getRealPath()), 
+            $response = Http::timeout(60)->attach(
+                'receiptImage',
+                file_get_contents($file->getRealPath()),
                 $file->getClientOriginalName()
-            )->post('http://localhost:8000/predict/ocr');
+            )->post("{$aiServiceUrl}/predict/ocr");
 
             if ($response->successful()) {
                 return response()->json($response->json(), 200);
@@ -141,8 +143,8 @@ class ChatbotController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Failed to connect to AI service',
-                'error' => $e->getMessage()
+                'message' => 'Failed to connect to AI service. Pastikan Python AI service berjalan di port yang benar (OCR_AI_SERVICE_URL di .env).',
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
@@ -160,8 +162,10 @@ class ChatbotController extends Controller
             return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
+        $aiServiceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
+
         try {
-            $response = Http::post('http://localhost:8000/predict/budget', $request->all());
+            $response = Http::timeout(30)->post("{$aiServiceUrl}/predict/budget", $request->all());
 
             if ($response->successful()) {
                 return response()->json($response->json(), 200);
@@ -174,8 +178,8 @@ class ChatbotController extends Controller
 
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Failed to connect to AI service',
-                'error' => $e->getMessage()
+                'message' => 'Failed to connect to AI service. Pastikan Python AI service berjalan di port yang benar (OCR_AI_SERVICE_URL di .env).',
+                'error'   => $e->getMessage(),
             ], 500);
         }
     }
