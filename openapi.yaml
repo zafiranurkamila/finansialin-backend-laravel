@@ -1473,15 +1473,18 @@ paths:
         "200":
           description: All Marked
 
-  /insights/receipt-ocr:
+  /receipt-ocr:
     post:
       tags:
         - Insights
-      summary: Auto-Scan Kuitansi (OCR AI Lokal)
+      summary: Auto-Scan Kuitansi (Receipt OCR)
       description: >
-        Endpoint ini digunakan untuk mendukung fitur "Pencatatan Otomatis" dari sebuah kuitansi. 
-        Menggunakan model Vision AI lokal (Donut OCR) untuk memindai foto kuitansi secara otomatis dan mengekstrak informasi krusial seperti Nama Merchant, Total Harga, dan Tanggal transaksi.
-        Data yang dikembalikan dapat langsung digunakan oleh frontend untuk melakukan auto-fill form pencatatan transaksi tanpa input manual dari pengguna.
+        Memindai foto/gambar kuitansi menggunakan model Vision AI lokal dan mengekstrak
+        informasi penting seperti nama merchant, total harga, dan tanggal transaksi secara otomatis.
+        Hasil ekstraksi dapat langsung digunakan oleh frontend untuk auto-fill form pencatatan
+        transaksi tanpa input manual pengguna. Endpoint meneruskan gambar ke Python AI Service
+        (berjalan di port OCR_AI_SERVICE_URL, default: http://127.0.0.1:8001) via /predict/ocr.
+        Memerlukan Bearer Token autentikasi.
       requestBody:
         required: true
         content:
@@ -1494,10 +1497,10 @@ paths:
                 receiptImage:
                   type: string
                   format: binary
-                  description: File gambar (.jpg, .png)
+                  description: "File gambar kuitansi. Format yang diterima: jpg, jpeg, png, webp. Maksimum 4MB."
       responses:
         "200":
-          description: Ekstraksi Berhasil
+          description: Ekstraksi OCR Berhasil
           content:
             application/json:
               schema:
@@ -1517,19 +1520,45 @@ paths:
                         example: 250000
                       date:
                         type: string
+                        format: date
                         example: "2026-04-27"
                       suggested_category:
                         type: string
-                        example: "Pengeluaran Lainnya"
+                        example: "Belanja Harian"
+                      raw_text:
+                        type: string
+                        description: Teks mentah hasil ekstraksi OCR dari kuitansi
+                        example: "INDOMARET\nJl. Sudirman No.10\nTotal: Rp250.000"
+        "422":
+          description: Validasi Gagal (file tidak ada / format tidak didukung / ukuran melebihi batas)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Gagal terkoneksi ke Python AI Service
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Failed to connect to AI service. Pastikan Python AI service berjalan di port yang benar (OCR_AI_SERVICE_URL di .env)."
+                  error:
+                    type: string
+                    example: "cURL error 7: Failed to connect to 127.0.0.1 port 8001"
 
-  /insights/predict-early-warning:
+  /predict-early-warning:
     post:
       tags:
         - Insights
       summary: Predictive Budget Early Warning
       description: >
-        Memprediksi apakah pengeluaran pengguna akan melebihi budget di bulan ini menggunakan Machine Learning (Time Series Forecasting). 
-        Sistem menganalisis tren pengeluaran harian dan memproyeksikan total pengeluaran di akhir siklus budget. Berguna untuk memberikan peringatan dini kepada user sebelum uang mereka benar-benar habis.
+        Memprediksi apakah pengeluaran pengguna akan melebihi budget di bulan ini menggunakan Machine Learning (Time Series Forecasting).
+        Sistem menganalisis tren pengeluaran harian dan memproyeksikan total pengeluaran di akhir siklus budget.
+        Berguna untuk memberikan peringatan dini kepada user sebelum uang mereka benar-benar habis.
+        Meneruskan request ke Python AI Service via /predict/budget. Memerlukan Bearer Token autentikasi.
       requestBody:
         required: true
         content:
@@ -1544,10 +1573,14 @@ paths:
               properties:
                 user_id:
                   type: integer
+                  example: 1
                 budget:
                   type: number
+                  example: 1000000
                 payday_date:
                   type: integer
+                  description: Tanggal gajian dalam bulan (1-31)
+                  example: 25
                 expenses:
                   type: array
                   items:
@@ -1556,8 +1589,10 @@ paths:
                       date:
                         type: string
                         format: date
+                        example: "2026-05-01"
                       amount:
                         type: number
+                        example: 50000
       responses:
         "200":
           description: Prediksi selesai
@@ -1568,6 +1603,7 @@ paths:
                 properties:
                   user_id:
                     type: integer
+                    example: 1
                   projected_total_expense:
                     type: number
                     example: 1200000.50
@@ -1580,15 +1616,22 @@ paths:
                   warning_message:
                     type: string
                     example: "Warning: Projected total expenses exceed your monthly budget. Consider adjusting your spending habits."
+        "500":
+          description: Gagal terkoneksi ke Python AI Service
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
-  /insights/assistant:
+  /assistant:
     get:
       tags:
         - Insights
       summary: User AI Assistant (Summary & Tips)
       description: >
-        Menghasilkan ringkasan kondisi keuangan, tips hemat, atau peringatan budget untuk dashboard user. 
-        Backend akan mengkalkulasi agregat finansial 30 hari terakhir dan merangkainya menjadi sebuah prompt kontekstual yang kemudian dijawab secara cerdas berdasarkan parameter `prompt`.
+        Menghasilkan ringkasan kondisi keuangan, tips hemat, atau peringatan budget untuk dashboard user.
+        Backend mengkalkulasi agregat finansial 30 hari terakhir dan merangkainya menjadi sebuah ringkasan
+        yang kemudian dijawab berdasarkan parameter `prompt`. Memerlukan Bearer Token autentikasi.
       parameters:
         - in: query
           name: prompt
@@ -1596,13 +1639,78 @@ paths:
             type: string
             default: summary
             enum: [summary, saving_tips, what_to_cut, budget_alerts, free_text]
+          description: Jenis respons yang diharapkan dari AI Assistant
         - in: query
           name: message
           schema:
             type: string
+          description: Pesan bebas dari user (hanya digunakan saat prompt=free_text)
       responses:
         "200":
-          description: AI Generation
+          description: AI Assistant Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    type: object
+                    description: Data agregat keuangan 30 hari terakhir
+                    properties:
+                      periodDays:
+                        type: integer
+                        example: 30
+                      income:
+                        type: number
+                        example: 5000000
+                      expense:
+                        type: number
+                        example: 3200000
+                      net:
+                        type: number
+                        example: 1800000
+                      savingsRate:
+                        type: number
+                        example: 36.0
+                      topExpenseCategory:
+                        type: string
+                        example: "Makan & Minum"
+                      topExpenseAmount:
+                        type: number
+                        example: 800000
+                      projectedMonthlyExpense:
+                        type: number
+                        example: 3200000
+                      activeBudgetWarnings:
+                        type: integer
+                        example: 1
+                  assistantReply:
+                    type: string
+                    example: "30 hari terakhir: pemasukan Rp5.000.000, pengeluaran Rp3.200.000, saldo bersih Rp1.800.000."
+                  quickPrompts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                          example: "summary"
+                        label:
+                          type: string
+                          example: "Ringkas kondisi keuangan saya"
+
+  /dashboard-summary:
+    get:
+      tags:
+        - Insights
+      summary: Dashboard Summary (Charts & Recent Transactions)
+      description: >
+        Mengembalikan data agregat untuk keperluan dashboard utama: total income/expense/balance keseluruhan,
+        data chart income 6 bulan terakhir, dan 3 transaksi terbaru beserta nama kategorinya.
+        Disertai ringkasan teks AI dari kondisi keuangan 30 hari terakhir. Memerlukan Bearer Token autentikasi.
+      responses:
+        "200":
+          description: Dashboard summary data
           content:
             application/json:
               schema:
@@ -1610,21 +1718,64 @@ paths:
                 properties:
                   summary:
                     type: string
-                  assistantReply:
-                    type: string
-                  quickPrompts:
+                    description: Teks ringkasan AI kondisi keuangan 30 hari terakhir
+                    example: "30 hari terakhir: pemasukan Rp5.000.000, pengeluaran Rp3.200.000, saldo bersih Rp1.800.000."
+                  totalIncome:
+                    type: number
+                    example: 15000000
+                  totalExpense:
+                    type: number
+                    example: 9500000
+                  totalBalance:
+                    type: number
+                    example: 5500000
+                  incomeChartData:
                     type: array
+                    description: Data income per bulan untuk 6 bulan terakhir
                     items:
-                      type: string
+                      type: object
+                      properties:
+                        month:
+                          type: string
+                          example: "Apr"
+                        amount:
+                          type: number
+                          example: 5000000
+                  recentTransactions:
+                    type: array
+                    description: 3 transaksi terbaru
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                        description:
+                          type: string
+                          example: "Makan Siang"
+                        type:
+                          type: string
+                          enum: [income, expense]
+                        amount:
+                          type: number
+                          example: 45000
+                        date:
+                          type: string
+                          format: date
+                          example: "2026-05-01"
+                        categoryName:
+                          type: string
+                          example: "Makan & Minum"
 
   /chat:
     post:
       tags:
         - Insights
-      summary: Chat with Finansialin AI
+      summary: Chat with Finansialin AI (Agentic)
       description: >
-        Chat interaktif dengan AI Assistant (LLM) yang terintegrasi dengan metode Function Calling (ReAct Agent).
-        AI mampu memanggil fungsi internal sistem secara real-time untuk menjawab pertanyaan user secara akurat, seperti mengecek saldo dompet saat ini, menganalisis pengeluaran bulanan, memantau status budget dan memberikan peringatan, melacak transaksi terbaru, membaca tren pengeluaran dan memberikan profil finansial pengguna.
+        Chat interaktif dengan AI Assistant berbasis Gemini (LLM) yang terintegrasi dengan Function Calling (ReAct Agent).
+        AI mampu memanggil fungsi internal secara real-time untuk menjawab pertanyaan user secara akurat:
+        mengecek saldo dompet, menganalisis pengeluaran bulanan, memantau status budget, melacak transaksi terbaru, dll.
+        Mendukung riwayat percakapan multi-turn melalui field `history`. Memerlukan Bearer Token autentikasi.
       requestBody:
         required: true
         content:
@@ -1637,9 +1788,25 @@ paths:
                 message:
                   type: string
                   example: "Berapa sisa uangku di dompet?"
+                history:
+                  type: array
+                  description: Riwayat percakapan sebelumnya untuk konteks multi-turn
+                  items:
+                    type: object
+                    required:
+                      - role
+                      - text
+                    properties:
+                      role:
+                        type: string
+                        enum: [user, model]
+                        example: "user"
+                      text:
+                        type: string
+                        example: "Halo, siapa kamu?"
       responses:
         "200":
-          description: AI Respuesta
+          description: AI Response
           content:
             application/json:
               schema:
@@ -1647,7 +1814,13 @@ paths:
                 properties:
                   reply:
                     type: string
-                    example: "Hai! Saat ini sisa uangmu di dompet sebesar Rp. 500,000."
+                    example: "Hai! Saat ini saldo dompetmu adalah Rp500.000 di BCA dan Rp200.000 cash."
+        "500":
+          description: Gemini API Error atau konfigurasi API Key tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /subscriptions/dashboard:
     get:
