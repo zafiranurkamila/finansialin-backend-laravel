@@ -81,9 +81,20 @@ class ResourceController extends Controller
             return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
+        $name = $request->string('name')->trim()->toString();
+        
+        // Check for duplicate name (case insensitive)
+        $exists = Resource::where('idUser', $user->idUser)
+            ->whereRaw('LOWER(source) = ?', [strtolower($name)])
+            ->exists();
+
+        if ($exists) {
+            return response()->json(['message' => 'Dompet dengan nama tersebut sudah ada.'], 400);
+        }
+
         $resource = Resource::create([
             'idUser' => $user->idUser,
-            'source' => $request->input('name'),
+            'source' => $name,
             'balance' => $request->input('initialBalance', 0),
         ]);
 
@@ -121,10 +132,27 @@ class ResourceController extends Controller
             return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
-        $resource->update([
-            'source' => $request->input('name', $resource->source),
-            'balance' => $request->input('initialBalance', $resource->balance),
-        ]);
+        $payload = [];
+        if ($request->has('name')) {
+            $newName = $request->string('name')->trim()->toString();
+            
+            // Check if name is taken by ANOTHER resource of the same user
+            $exists = Resource::where('idUser', $user->idUser)
+                ->where('idResource', '!=', $idResource)
+                ->whereRaw('LOWER(source) = ?', [strtolower($newName)])
+                ->exists();
+
+            if ($exists) {
+                return response()->json(['message' => 'Nama dompet sudah digunakan oleh dompet lain.'], 400);
+            }
+            $payload['source'] = $newName;
+        }
+
+        if ($request->has('initialBalance')) {
+            $payload['balance'] = $request->input('initialBalance');
+        }
+
+        $resource->update($payload);
 
         return response()->json([
             'message' => 'Resource berhasil diperbarui',
