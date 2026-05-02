@@ -18,17 +18,14 @@ class FinancialInsightService
      */
     public function getWalletBalances($userId)
     {
-        // Query to funding_sources table instead of outdated resources table
-        return \App\Models\FundingSource::where('idUser', $userId)
+        // Query the resources table which stores live wallet balances directly
+        return Resource::where('idUser', $userId)
+            ->orderBy('createdAt', 'asc')
             ->get()
-            ->map(function($source) use ($userId) {
-                // Calculate actual available balance
-                $income = \App\Models\Transaction::where('idUser', $userId)->where('source', $source->name)->where('type', 'income')->sum('amount');
-                $expense = \App\Models\Transaction::where('idUser', $userId)->where('source', $source->name)->where('type', 'expense')->sum('amount');
-                
+            ->map(function ($resource) {
                 return [
-                    'wallet_name' => $source->name,
-                    'balance' => round((float)$source->initialBalance + (float)$income - (float)$expense, 2)
+                    'wallet_name' => $resource->source,
+                    'balance'     => round((float) $resource->balance, 2),
                 ];
             });
     }

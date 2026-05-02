@@ -3,12 +3,11 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BudgetsController;
 use App\Http\Controllers\CategoriesController;
-use App\Http\Controllers\FundingSourcesController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\PreferencesController;
 use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\SubscriptionsController;
-use App\Http\Controllers\InsightsController;
+use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\TransactionsController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WebhookIntegrationsController;
@@ -67,10 +66,6 @@ Route::middleware('token.auth')->group(function (): void {
     Route::put('/categories/{id}', [CategoriesController::class, 'update']);
     Route::delete('/categories/{id}', [CategoriesController::class, 'destroy']);
 
-    Route::get('/funding-sources', [FundingSourcesController::class, 'index']);
-    Route::post('/funding-sources', [FundingSourcesController::class, 'store']);
-    Route::put('/funding-sources/{id}', [FundingSourcesController::class, 'update']);
-    Route::delete('/funding-sources/{id}', [FundingSourcesController::class, 'destroy']);
 
     Route::get('/transactions', [TransactionsController::class, 'index']);
     Route::get('/transactions/search', [TransactionsController::class, 'search']);
@@ -101,6 +96,7 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/insights/dashboard-summary', [ChatbotController::class, 'dashboardSummary']);
     Route::post('/insights/receipt-ocr', [ChatbotController::class, 'receiptOcr']);
     Route::post('/insights/predict-early-warning', [ChatbotController::class, 'predictEarlyWarning']);
+    Route::post('/chat', [ChatbotController::class, 'chat']);
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 
     Route::get('/salaries/summary/overview', [SalaryController::class, 'summary']);
