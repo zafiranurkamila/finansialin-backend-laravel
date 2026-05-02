@@ -87,4 +87,35 @@ class SecurityOtp extends Model
 
         return true;
     }
+
+    public static function validate(User $user, string $purpose, string $plainCode): bool
+    {
+        $record = self::query()
+            ->where('idUser', $user->idUser)
+            ->where('purpose', $purpose)
+            ->whereNull('consumedAt')
+            ->where('expiresAt', '>', now())
+            ->orderByDesc('idOtp')
+            ->first();
+
+        if (!$record) {
+            return false;
+        }
+
+        $isValid = hash_equals($record->codeHash, hash('sha256', trim($plainCode)));
+
+        $record->attempts = (int) $record->attempts + 1;
+
+        if (!$isValid) {
+            if ($record->attempts >= 5) {
+                $record->consumedAt = now();
+            }
+            $record->save();
+            return false;
+        }
+
+        $record->save();
+
+        return true;
+    }
 }

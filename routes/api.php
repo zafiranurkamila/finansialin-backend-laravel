@@ -30,6 +30,7 @@ Route::prefix('auth')->group(function (): void {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/refresh', [AuthController::class, 'refresh']);
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/forgot-password/verify', [AuthController::class, 'verifyResetOtp']);
     Route::post('/reset-password', [AuthController::class, 'resetPassword']);
     Route::post('/2fa/verify-login', [AuthController::class, 'verifyLoginTwoFactor'])->middleware('token.2fa.pending');
 

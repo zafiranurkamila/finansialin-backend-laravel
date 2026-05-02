@@ -394,6 +394,41 @@ class AuthController extends Controller
         return response()->json($response);
     }
 
+    public function verifyResetOtp(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => ['required', 'email'],
+            'code' => ['required', 'digits:6'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => $validator->errors()->first(),
+            ], 422);
+        }
+
+        $email = $request->string('email')->lower()->toString();
+        $user = User::query()->where('email', $email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'User not found',
+            ], 404);
+        }
+
+        $ok = SecurityOtp::validate($user, 'password_reset', (string) $request->input('code'));
+        if (!$ok) {
+            return response()->json([
+                'message' => 'Invalid or expired verification code',
+            ], 422);
+        }
+
+        return response()->json([
+            'message' => 'OTP verified',
+            'success' => true,
+        ]);
+    }
+
     public function resetPassword(Request $request): JsonResponse
     {
         $validator = Validator::make($request->all(), [
