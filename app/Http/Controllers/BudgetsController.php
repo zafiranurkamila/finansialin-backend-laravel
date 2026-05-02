@@ -54,7 +54,7 @@ class BudgetsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
-            'period' => ['nullable', 'in:day,daily,week,weekly,monthly,year,yearly'],
+            'period' => ['nullable', 'in:day,daily,week,weekly,monthly,year,yearly,custom'],
             'periodStart' => ['required', 'date'],
             'periodEnd' => ['required', 'date', 'after_or_equal:periodStart'],
             'amount' => ['required', 'numeric', 'min:0'],
@@ -80,7 +80,7 @@ class BudgetsController extends Controller
             'period' => $normalizedPeriod,
             'periodStart' => $this->parseInputDateTime((string) $request->input('periodStart')),
             'periodEnd' => $this->parseInputDateTime((string) $request->input('periodEnd')),
-            'amount' => (float) $request->input('amount'),
+            'amount' => $request->input('amount'),
         ]);
 
         UserNotification::create([
@@ -126,7 +126,7 @@ class BudgetsController extends Controller
 
         $validator = Validator::make($request->all(), [
             'idCategory' => ['nullable', 'integer'],
-            'period' => ['nullable', 'in:day,daily,week,weekly,monthly,year,yearly'],
+            'period' => ['nullable', 'in:day,daily,week,weekly,monthly,year,yearly,custom'],
             'periodStart' => ['nullable', 'date'],
             'periodEnd' => ['nullable', 'date'],
             'amount' => ['nullable', 'numeric', 'min:0'],
@@ -564,10 +564,10 @@ class BudgetsController extends Controller
         $d = CarbonImmutable::parse($date->format(DATE_ATOM))->utc();
 
         return match ($period) {
-            'daily' => [$d->startOfDay(), $d->startOfDay()->addDay()],
-            'weekly' => [$d->startOfWeek(), $d->startOfWeek()->addWeek()],
-            'year' => [$d->startOfYear(), $d->startOfYear()->addYear()],
-            default => [$d->startOfMonth(), $d->startOfMonth()->addMonth()],
+            'daily' => [$d->startOfDay(), $d->endOfDay()],
+            'weekly' => [$d->startOfWeek(), $d->endOfWeek()],
+            'year' => [$d->startOfYear(), $d->endOfYear()],
+            default => [$d->startOfMonth(), $d->endOfMonth()],
         };
     }
 
@@ -577,6 +577,7 @@ class BudgetsController extends Controller
             'day', 'daily' => 'daily',
             'week', 'weekly' => 'weekly',
             'year', 'yearly' => 'year',
+            'custom' => 'custom',
             default => 'monthly',
         };
     }
