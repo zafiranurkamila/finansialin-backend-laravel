@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Transaction;
+use App\Models\Resource;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -31,6 +32,12 @@ class QrisWebhookTest extends TestCase
             'email' => 'webhook-user@example.com',
         ]);
 
+        $resource = Resource::query()->create([
+            'idUser' => $user->idUser,
+            'source' => 'cash',
+            'balance' => 50000,
+        ]);
+
         $response = $this->withHeaders([
             'X-Webhook-Secret' => 'test-secret',
         ])->postJson('/api/integrations/qris/email', [
@@ -39,6 +46,7 @@ class QrisWebhookTest extends TestCase
             'merchant' => 'Kopi Kita',
             'categoryName' => 'Food & Drinks',
             'paidAt' => '2026-03-07T09:15:00Z',
+            'source' => 'cash',
         ]);
 
         $response->assertStatus(201);
@@ -48,12 +56,14 @@ class QrisWebhookTest extends TestCase
         $this->assertDatabaseHas('transactions', [
             'idUser' => $user->idUser,
             'type' => 'expense',
-            'source' => 'qris-email-automation',
+            'idResource' => $resource->idResource,
         ]);
 
         $transaction = Transaction::query()->where('idUser', $user->idUser)->latest('idTransaction')->first();
         $this->assertNotNull($transaction);
         $this->assertSame('25000.50', number_format((float) $transaction->amount, 2, '.', ''));
         $this->assertNotNull($transaction->idCategory);
+        $this->assertSame($resource->idResource, $transaction->idResource);
+        $this->assertSame(24999.5, (float) Resource::query()->findOrFail($resource->idResource)->balance);
     }
 }

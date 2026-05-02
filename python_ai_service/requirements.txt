@@ -12,3 +12,4 @@ transformers
 sentencepiece
 protobuf
 Pillow
+langchain

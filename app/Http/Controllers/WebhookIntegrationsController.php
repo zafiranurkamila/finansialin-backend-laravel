@@ -11,11 +11,56 @@ use App\Models\UserNotification;
 use App\Services\ResourceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Validator;
 
 class WebhookIntegrationsController extends Controller
 {
-    public function ingestQrisEmail(Request $request): JsonResponse
+
+    public function receiptOcr(Request $request): JsonResponse
+    {
+        $validator = Validator::make($request->all(), [
+            'receiptImage' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => $validator->errors()->first()], 422);
+        }
+
+        $file = $request->file('receiptImage');
+        if ($file === null) {
+            return response()->json(['message' => 'receiptImage is required'], 422);
+        }
+
+        $serviceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
+
+        try {
+            $response = Http::timeout(120)
+                ->attach(
+                    'receiptImage',
+                    file_get_contents($file->getRealPath()),
+                    $file->getClientOriginalName()
+                )
+                ->post($serviceUrl . '/predict/ocr');
+
+            if ($response->successful()) {
+                return response()->json($response->json(), 200);
+            }
+
+            return response()->json([
+                'message' => 'AI Service Error',
+                'details' => $response->json(),
+            ], $response->status());
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Failed to connect to AI service',
+                'error' => $e->getMessage(),
+                'service_url' => $serviceUrl,
+            ], 500);
+        }
+    }
+
+public function ingestQrisEmail(Request $request): JsonResponse
     {
         $expectedSecret = (string) env('N8N_QRIS_WEBHOOK_SECRET', '');
         $providedSecret = (string) $request->header('X-Webhook-Secret', '');
@@ -80,7 +125,6 @@ class WebhookIntegrationsController extends Controller
             'amount' => number_format($amount, 2, '.', ''),
             'description' => $description !== '' ? $description : 'QRIS payment from email automation',
             'date' => $request->filled('paidAt') ? $request->input('paidAt') : now(),
-            'source' => $sourceName !== '' ? $sourceName : 'qris-email-automation',
         ]);
 
         if ($idResource) {

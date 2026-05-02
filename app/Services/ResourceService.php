@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Http\Controllers\ResourceController;
 use App\Models\Resource;
 use App\Models\User;
 
