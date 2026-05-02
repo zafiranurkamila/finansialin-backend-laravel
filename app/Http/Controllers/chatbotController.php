@@ -6,37 +6,18 @@ use App\Models\Budget;
 use App\Models\Category;
 use App\Models\Transaction;
 use App\Models\User;
-use App\Services\FinancialInsightService;
-use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use RuntimeException;
+use App\Services\FinancialInsightService;
+use Throwable;
 
-class ChatbotController extends Controller
+class InsightsController extends Controller
 {
-    private FinancialInsightService $insightService;
-
-    // Semua nama fungsi yang dikenali AI
-    private const AVAILABLE_FUNCTIONS = [
-        'getWalletBalances',
-        'getMonthlyAnalytics',
-        'getBudgetStatus',
-        'getRecentTransactions',
-        'getSpendingTrend',
-        'getUserFinancialProfile',
-        'getSavingsGoals',
-    ];
-
-    public function __construct(FinancialInsightService $insightService)
-    {
-        $this->insightService = $insightService;
-    }
-
     public function assistant(Request $request): JsonResponse
     {
         /** @var User $user */
@@ -47,7 +28,6 @@ class ChatbotController extends Controller
         if ($message !== '') {
             $prompt = 'free_text';
         }
-
         $now = CarbonImmutable::now('UTC');
         $from = $now->subDays(30);
 
@@ -138,18 +118,16 @@ class ChatbotController extends Controller
         }
 
         $file = $request->file('receiptImage');
-        if (!$file instanceof UploadedFile) {
+        if ($file === null) {
             return response()->json(['message' => 'receiptImage is required'], 422);
         }
 
-        $serviceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
-
         try {
-            $response = Http::timeout(120)->attach(
-                'receiptImage',
-                file_get_contents($file->getRealPath()),
+            $response = Http::attach(
+                'receiptImage', 
+                file_get_contents($file->getRealPath()), 
                 $file->getClientOriginalName()
-            )->post($serviceUrl . '/predict/ocr');
+            )->post('http://localhost:8000/predict/ocr');
 
             if ($response->successful()) {
                 return response()->json($response->json(), 200);
@@ -159,11 +137,11 @@ class ChatbotController extends Controller
                 'message' => 'AI Service Error',
                 'details' => $response->json(),
             ], $response->status());
+
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to connect to AI service',
-                'error' => $e->getMessage(),
-                'service_url' => $serviceUrl,
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -181,10 +159,8 @@ class ChatbotController extends Controller
             return response()->json(['message' => $validator->errors()->first()], 422);
         }
 
-        $serviceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
-
         try {
-            $response = Http::timeout(120)->post($serviceUrl . '/predict/budget', $request->all());
+            $response = Http::post('http://localhost:8000/predict/budget', $request->all());
 
             if ($response->successful()) {
                 return response()->json($response->json(), 200);
@@ -194,11 +170,11 @@ class ChatbotController extends Controller
                 'message' => 'AI Service Error',
                 'details' => $response->json(),
             ], $response->status());
+
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to connect to AI service',
-                'error' => $e->getMessage(),
-                'service_url' => $serviceUrl,
+                'error' => $e->getMessage()
             ], 500);
         }
     }
@@ -207,37 +183,43 @@ class ChatbotController extends Controller
     {
         /** @var User $user */
         $user = $request->attributes->get('auth_user');
-
+        
         $now = CarbonImmutable::now('UTC');
-
+        
+        // Calculate total income and expense
         $totalIncome = (float) Transaction::query()
             ->where('idUser', $user->idUser)
             ->where('type', 'income')
             ->sum('amount');
-
+        
         $totalExpense = (float) Transaction::query()
             ->where('idUser', $user->idUser)
             ->where('type', 'expense')
             ->sum('amount');
-
+        
         $totalBalance = $totalIncome - $totalExpense;
-
+        
+        // Get income grouped by last 6 months
+        $last6Months = [];
         $incomeChartData = [];
         for ($i = 5; $i >= 0; $i--) {
             $monthDate = $now->subMonths($i)->startOfMonth();
-
+            $monthKey = $monthDate->format('Y-m');
+            $last6Months[] = $monthKey;
+            
             $monthIncome = (float) Transaction::query()
                 ->where('idUser', $user->idUser)
                 ->where('type', 'income')
                 ->whereBetween('date', [$monthDate, $monthDate->endOfMonth()])
                 ->sum('amount');
-
+            
             $incomeChartData[] = [
                 'month' => $monthDate->format('M'),
                 'amount' => round($monthIncome, 2),
             ];
         }
-
+        
+        // Get 3 most recent transactions with category names
         $recentTransactions = Transaction::query()
             ->where('idUser', $user->idUser)
             ->with('category:idCategory,name')
@@ -254,8 +236,39 @@ class ChatbotController extends Controller
                     'categoryName' => $transaction->category?->name ?? 'Uncategorized',
                 ];
             });
+        
+        // Calculate metrics for AI summary
+        $recentTx = Transaction::query()
+            ->where('idUser', $user->idUser)
+            ->where('date', '>=', $now->subDays(30))
+            ->get();
+        
+        $income30 = (float) $recentTx->where('type', 'income')->sum('amount');
+        $expense30 = (float) $recentTx->where('type', 'expense')->sum('amount');
+        $net30 = $income30 - $expense30;
+        
+        $categories = Category::query()->pluck('name', 'idCategory');
+        $expenseByCategory = [];
+        foreach ($recentTx->where('type', 'expense') as $tx) {
+            $catName = $categories[$tx->idCategory] ?? 'Uncategorized';
+            $expenseByCategory[$catName] = ($expenseByCategory[$catName] ?? 0) + (float) $tx->amount;
+        }
+        arsort($expenseByCategory);
+        $topCategory = array_key_first($expenseByCategory);
+        $topCategoryAmount = $topCategory ? (float) $expenseByCategory[$topCategory] : 0.0;
+
+        $summaryData = [
+            'income' => $income30,
+            'expense' => $expense30,
+            'net' => $net30,
+            'topExpenseCategory' => $topCategory,
+            'topExpenseAmount' => $topCategoryAmount,
+        ];
+
+        $aiSummaryText = $this->buildAssistantReply('summary', $summaryData);
 
         return response()->json([
+            'summary' => $aiSummaryText,
             'totalIncome' => round($totalIncome, 2),
             'totalExpense' => round($totalExpense, 2),
             'totalBalance' => round($totalBalance, 2),
@@ -293,155 +306,204 @@ class ChatbotController extends Controller
                 . "Pengeluaran terbesar ada di {$topCategory}.",
         };
     }
+
     public function chat(Request $request): JsonResponse
     {
         /** @var User $user */
         $user = $request->attributes->get('auth_user');
         $userId = $user->idUser;
 
-        // Validasi input dari frontend (kita hilangkan validasi 'history' karena sekarang di-handle Python)
         $request->validate([
-            'message'    => 'required|string|max:2000',
-            'session_id' => 'nullable|string', 
+            'message' => 'required|string',
+            'history' => 'nullable|array',
         ]);
 
-        $message = trim($request->input('message'));
-        
-        // Generate session_id sementara jika frontend belum mengirimkannya
-        // Format: session_{userId}_{tanggal_hari_ini}
-        $sessionId = $request->input('session_id', 'session_' . $userId . '_' . now()->format('Ymd'));
+        $message = $request->input('message');
+        $history = $request->input('history', []);
+        $service = new FinancialInsightService();
 
-        // URL ke service Python (menggunakan config yang sama dengan OCR)
-        $serviceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
+        $tools = [
+            [
+                'functionDeclarations' => [
+                    [
+                        'name' => 'getWalletBalances',
+                        'description' => 'Gunakan tool ini untuk melihat daftar dompet/rekening pengguna beserta sisa saldonya saat ini.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
+                    [
+                        'name' => 'getMonthlyAnalytics',
+                        'description' => 'Gunakan tool ini untuk melihat ringkasan analitik pengeluaran dan pemasukan per kategori pada bulan tertentu.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'month' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Bulan dalam format angka (1-12). Opsional.'
+                                ],
+                                'year' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Tahun dalam format angka (misal: 2023). Opsional.'
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => 'getBudgetStatus',
+                        'description' => 'Gunakan tool ini untuk melihat status limit budget pengguna dan mendeteksi apakah pengeluaran overbudget atau mendekati batas.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'month' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Bulan dalam format angka (1-12). Opsional.'
+                                ],
+                                'year' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Tahun dalam format angka. Opsional.'
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => 'getRecentTransactions',
+                        'description' => 'Gunakan tool ini untuk melihat riwayat pengeluaran atau pemasukan terakhir pengguna.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'limit' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Jumlah transaksi yang ingin diambil. Standarnya adalah 5.'
+                                ]
+                            ],
+                        ],
+                    ],
+                ]
+            ]
+        ];
+
+        $systemInstruction = [
+            'parts' => [
+                ['text' => 'Kamu adalah Finansialin AI, asisten pribadi virtual yang proaktif, cerdas, dan empatik. Kamu memiliki memori percakapan berkat history yang diberikan. Jawab dengan gaya bahasa kasual (aku/kamu). Gunakan tools yang tersedia untuk merespons akurat terkait keuangan pengguna. Jawab juga pertanyaan sapaan atau trivia dengan luwes tanpa memaksakan diri menjadi kaku. Bila perlu, berikan saran penghematan atau peringatan budget sesuai data riil mereka.']
+            ]
+        ];
+
+        $contents = [];
+        foreach ($history as $chatItem) {
+            if (isset($chatItem['role']) && isset($chatItem['text'])) {
+                $contents[] = [
+                    'role' => $chatItem['role'],
+                    'parts' => [
+                        ['text' => $chatItem['text']]
+                    ]
+                ];
+            }
+        }
+
+        $contents[] = [
+            'role' => 'user',
+            'parts' => [
+                ['text' => $message]
+            ]
+        ];
+
+        $payload = [
+            'system_instruction' => $systemInstruction,
+            'tools' => $tools,
+            'contents' => $contents
+        ];
+
+        $apiKey = trim((string) config('services.gemini.api_key', ''));
+        if ($apiKey === '') {
+            return response()->json([
+                'message' => 'Gemini API key is missing. Set GEMINI_API_KEY in backend .env, then restart Laravel server.',
+            ], 500);
+        }
+
+        $verify = true;
+        $caBundle = trim((string) config('services.gemini.ca_bundle', ''));
+        if ($caBundle !== '') {
+            $verify = $caBundle;
+        } else {
+            $rawVerify = config('services.gemini.ssl_verify', true);
+            if (is_string($rawVerify)) {
+                $verify = !in_array(strtolower(trim($rawVerify)), ['0', 'false', 'off', 'no'], true);
+            } else {
+                $verify = (bool) $rawVerify;
+            }
+        }
+
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}";
 
         try {
-            // STEP 1: Laravel hanya menjadi kurir yang meneruskan data ke Python
-            $response = Http::timeout(30)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post($serviceUrl . '/chat', [
-                    'user_id'    => $userId,
-                    'session_id' => $sessionId,
-                    'message'    => $message,
-                ]);
+            $http = Http::withHeaders(['Content-Type' => 'application/json'])
+                ->withOptions(['verify' => $verify])
+                ->timeout(30);
 
-            if (!$response->successful()) {
-                Log::error('Python AI Service error', [
-                    'status' => $response->status(), 
-                    'body' => $response->body()
-                ]);
-                return response()->json(['reply' => 'Maaf, layanan asisten sedang tidak tersedia.'], 503);
-            }
-
+            $response = $http->post($url, $payload);
             $data = $response->json();
-
-            // Kembalikan balasan dari Python ke Frontend
-            return response()->json([
-                'reply' => $data['reply'] ?? 'Tidak ada balasan dari AI.',
-                'type'  => $data['type'] ?? 'text'
-            ]);
-
-        } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            Log::error('Python connection timeout', ['error' => $e->getMessage()]);
-            return response()->json(['reply' => 'Koneksi ke asisten AI timeout. Coba sebentar lagi ya.'], 504);
-        } catch (\Exception $e) {
-            Log::error('Chatbot unexpected error', ['error' => $e->getMessage()]);
-            return response()->json(['reply' => 'Terjadi kesalahan sistem internal.'], 500);
-        }
-    }
-
-    // =========================================================================
-    // FUNCTION EXECUTOR — Router ke FinancialInsightService
-    // =========================================================================
-    private function executeFunction(string $name, int $userId, array $args): array
-    {
-        try {
-            $result = match ($name) {
-                'getWalletBalances'      => $this->insightService->getWalletBalances($userId),
-                'getMonthlyAnalytics'    => $this->insightService->getMonthlyAnalytics(
-                    $userId,
-                    isset($args['month']) ? (int) $args['month'] : null,
-                    isset($args['year'])  ? (int) $args['year']  : null,
-                ),
-                'getBudgetStatus'        => $this->insightService->getBudgetStatus(
-                    $userId,
-                    isset($args['month']) ? (int) $args['month'] : null,
-                    isset($args['year'])  ? (int) $args['year']  : null,
-                ),
-                'getRecentTransactions'  => $this->insightService->getRecentTransactions(
-                    $userId,
-                    min((int) ($args['limit'] ?? 5), 20),
-                    $args['type'] ?? null,
-                ),
-                'getSpendingTrend'       => $this->insightService->getSpendingTrend(
-                    $userId,
-                    min((int) ($args['months'] ?? 3), 6),
-                ),
-                'getUserFinancialProfile' => $this->insightService->getUserFinancialProfile($userId),
-                'getSavingsGoals'        => $this->insightService->getSavingsGoals($userId),
-                default                  => ['error' => 'Fungsi tidak ditemukan'],
-            };
-
-            // Pastikan selalu return array (bukan Collection/object mentah)
-            if ($result instanceof \Illuminate\Support\Collection) {
-                return $result->toArray();
+        } catch (Throwable $e) {
+            $msg = $e->getMessage();
+            if (str_contains(strtolower($msg), 'ssl certificate problem')) {
+                return response()->json([
+                    'message' => 'SSL certificate validation failed when calling Gemini. Set GEMINI_CA_BUNDLE in backend .env to your cacert.pem path and restart Laravel.',
+                    'details' => $msg,
+                ], 502);
             }
 
-            return is_array($result) ? $result : ['data' => $result];
-
-        } catch (\Exception $e) {
-            Log::error("FinancialInsightService error: {$name}", [
-                'userId' => $userId,
-                'args'   => $args,
-                'error'  => $e->getMessage(),
-            ]);
-
-            return ['error' => 'Data tidak tersedia saat ini', 'function' => $name];
-        }
-    }
-
-    // Fungsi khusus untuk diakses oleh service Python AI
-    public function internalGetBalance(Request $request): JsonResponse
-    {
-        $userId = $request->query('user_id');
-        
-        if (!$userId) {
-            return response()->json(['error' => 'user_id is required'], 400);
-        }
-
-        try {
-            // Memanggil service yang sudah ada di aplikasimu untuk menghitung saldo
-            $balances = $this->insightService->getWalletBalances((int) $userId);
-            
             return response()->json([
-                'status' => 'success',
-                'data' => $balances
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Internal API Balance Error', ['error' => $e->getMessage()]);
-            return response()->json(['error' => 'Gagal mengambil data saldo'], 500);
-        }
-    }
-    public function internalGetRecentTransactions(Request $request): JsonResponse
-    {
-        $userId = $request->query('user_id');
-        $limit = $request->query('limit', 5); // Default ambil 5 transaksi kalau tidak dispesifikasikan
-
-        if (!$userId) {
-            return response()->json(['error' => 'user_id is required'], 400);
+                'message' => 'Failed to connect to Gemini service.',
+                'details' => $msg,
+            ], 502);
         }
 
-        try {
-            // Memanggil service yang sudah ada untuk mengambil transaksi terakhir
-            $transactions = $this->insightService->getRecentTransactions((int) $userId, (int) $limit);
-            
-            return response()->json([
-                'status' => 'success',
-                'data' => $transactions
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Internal API Recent Transactions Error', ['error' => $e->getMessage()]);
-            return response()->json(['error' => 'Gagal mengambil data riwayat transaksi'], 500);
+        // Cek apakah balasan merupakan Function Call
+        if (isset($data['candidates'][0]['content']['parts'][0]['functionCall'])) {
+            $functionCall = $data['candidates'][0]['content']['parts'][0]['functionCall'];
+            $functionName = $functionCall['name'];
+            $args = $functionCall['args'] ?? [];
+
+            $functionResult = null;
+
+            if ($functionName === 'getWalletBalances') {
+                $functionResult = $service->getWalletBalances($userId);
+            } elseif ($functionName === 'getMonthlyAnalytics') {
+                $functionResult = $service->getMonthlyAnalytics($userId, $args['month'] ?? null, $args['year'] ?? null);
+            } elseif ($functionName === 'getBudgetStatus') {
+                $functionResult = $service->getBudgetStatus($userId, $args['month'] ?? null, $args['year'] ?? null);
+            } elseif ($functionName === 'getRecentTransactions') {
+                $functionResult = $service->getRecentTransactions($userId, $args['limit'] ?? 5);
+            }
+
+            // Membangun payload putaran kedua untuk meneruskan Hasil Fungsi ke Gemini
+            $payload['contents'][] = $data['candidates'][0]['content']; // history dari model (berisi call function)
+            $payload['contents'][] = [
+                'role' => 'user', // Wait! actually gemini needs `role: 'user'` for functionResponse or `role: 'function'`? No, role: 'user' inside Gemini Flash or `role: 'function'`. Actually Gemini Docs prefer role 'function'/part 'functionResponse' but sometimes 'user' with 'functionResponse'.
+                'parts' => [
+                    [
+                        'functionResponse' => [
+                            'name' => $functionName,
+                            'response' => [
+                                'content' => $functionResult
+                            ]
+                        ]
+                    ]
+                ]
+            ];
+
+            // Re-request ke Gemini dengan history dan data balasan
+            $secondResponse = $http->post($url, $payload);
+
+            $data = $secondResponse->json();
         }
+
+        $finalAnswer = $data['candidates'][0]['content']['parts'][0]['text'] ?? 'Maaf, aku tidak bisa memproses permintaan saat ini.';
+
+        return response()->json([
+            'reply' => $finalAnswer
+        ]);
     }
     // Fungsi khusus internal: Status Budget
     public function internalGetBudgetStatus(Request $request): JsonResponse
@@ -536,4 +598,5 @@ class ChatbotController extends Controller
         }
     }
     
+}
 }

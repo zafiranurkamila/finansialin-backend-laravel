@@ -3,11 +3,12 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BudgetsController;
 use App\Http\Controllers\CategoriesController;
+use App\Http\Controllers\FundingSourcesController;
 use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\PreferencesController;
 use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\SubscriptionsController;
-use App\Http\Controllers\ChatbotController;
+use App\Http\Controllers\InsightsController;
 use App\Http\Controllers\TransactionsController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WebhookIntegrationsController;
@@ -49,16 +50,13 @@ Route::post('/integrations/qris/email', [WebhookIntegrationsController::class, '
 
 Route::get('/internal/balance', [\App\Http\Controllers\ChatbotController::class, 'internalGetBalance']);
 Route::get('/internal/recent-transactions', [\App\Http\Controllers\ChatbotController::class, 'internalGetRecentTransactions']);
-Route::get('/internal/budget-status', [\App\Http\Controllers\ChatbotController::class, 'internalGetBudgetStatus']);
-Route::get('/internal/monthly-analytics', [\App\Http\Controllers\ChatbotController::class, 'internalGetMonthlyAnalytics']);
-Route::get('/internal/spending-trend', [\App\Http\Controllers\ChatbotController::class, 'internalGetSpendingTrend']);
-Route::get('/internal/financial-profile', [\App\Http\Controllers\ChatbotController::class, 'internalGetUserFinancialProfile']);
-Route::get('/internal/savings-goals', [\App\Http\Controllers\ChatbotController::class, 'internalGetSavingsGoals']);
 
 Route::middleware('token.auth')->group(function (): void {
     Route::patch('/users/name', [UsersController::class, 'updateName']);
     Route::put('/users/profile', [UsersController::class, 'updateProfile']);
+    Route::post('/users/avatar', [UsersController::class, 'uploadAvatar']);
     Route::patch('/users/password', [UsersController::class, 'resetPassword']);
+    Route::delete('/users/account', [UsersController::class, 'destroy']);
     Route::get('/users/preferences', [PreferencesController::class, 'show']);
     Route::put('/users/preferences', [PreferencesController::class, 'update']);
 
@@ -68,6 +66,11 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/categories/{id}', [CategoriesController::class, 'show']);
     Route::put('/categories/{id}', [CategoriesController::class, 'update']);
     Route::delete('/categories/{id}', [CategoriesController::class, 'destroy']);
+
+    Route::get('/funding-sources', [FundingSourcesController::class, 'index']);
+    Route::post('/funding-sources', [FundingSourcesController::class, 'store']);
+    Route::put('/funding-sources/{id}', [FundingSourcesController::class, 'update']);
+    Route::delete('/funding-sources/{id}', [FundingSourcesController::class, 'destroy']);
 
     Route::get('/transactions', [TransactionsController::class, 'index']);
     Route::get('/transactions/search', [TransactionsController::class, 'search']);
@@ -91,14 +94,13 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/notifications', [NotificationsController::class, 'index']);
     Route::get('/notifications/unread', [NotificationsController::class, 'unread']);
     Route::get('/notifications/unread/count', [NotificationsController::class, 'unreadCount']);
-    Route::patch('/notifications/{id}/read', [NotificationsController::class, 'markRead']);
     Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
+    Route::patch('/notifications/{id}/read', [NotificationsController::class, 'markRead']);
 
     Route::get('/insights/assistant', [ChatbotController::class, 'assistant']);
     Route::get('/insights/dashboard-summary', [ChatbotController::class, 'dashboardSummary']);
     Route::post('/insights/receipt-ocr', [ChatbotController::class, 'receiptOcr']);
     Route::post('/insights/predict-early-warning', [ChatbotController::class, 'predictEarlyWarning']);
-
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 
     Route::get('/salaries/summary/overview', [SalaryController::class, 'summary']);
@@ -112,7 +114,8 @@ Route::middleware('token.auth')->group(function (): void {
 
     Route::get('/resources/summary', [ResourceController::class, 'summary']);
     Route::get('/resources', [ResourceController::class, 'index']);
+    Route::post('/resources', [ResourceController::class, 'store']);
     Route::get('/resources/{idResource}', [ResourceController::class, 'show']);
-    
-    Route::post('/chat', [ChatbotController::class, 'chat']);
+    Route::put('/resources/{idResource}', [ResourceController::class, 'update']);
+    Route::delete('/resources/{idResource}', [ResourceController::class, 'destroy']);
 });

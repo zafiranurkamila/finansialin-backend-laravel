@@ -20,6 +20,7 @@ class BudgetsController extends Controller
         $user = $request->attributes->get('auth_user');
 
         $budgets = Budget::query()
+            ->with('category')
             ->where('idUser', $user->idUser)
             ->orderByDesc('periodStart')
             ->get();
@@ -288,7 +289,7 @@ class BudgetsController extends Controller
         }
 
         $txGroups = $txQuery
-            ->selectRaw('idCategory, SUM(amount) as spent')
+            ->selectRaw('"idCategory", SUM(amount) as spent')
             ->groupBy('idCategory')
             ->get();
 
@@ -320,7 +321,8 @@ class BudgetsController extends Controller
             $remaining = $budgetAmount - $spent;
             $percent = $budgetAmount > 0 ? ($spent / $budgetAmount) * 100 : 0;
             $catId = $key === 'null' ? null : (int) $key;
-            $catName = $catId === null ? 'Uncategorized' : ($categories[$catId]->name ?? 'Unknown');
+            $category = $catId !== null ? $categories->get($catId) : null;
+            $catName = $catId === null ? 'Uncategorized' : ($category?->name ?? 'Unknown');
 
             $data[] = [
                 'idCategory' => $catId,

@@ -71,7 +71,7 @@ class CategoriesController extends Controller
                         $query->orWhere('source', 'like', '%' . $source . '%');
                     }
                 })
-                ->selectRaw('idCategory, COUNT(*) as total')
+                ->selectRaw('"idCategory", COUNT(*) as total')
                 ->groupBy('idCategory')
                 ->orderByDesc('total')
                 ->get();
