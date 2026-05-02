@@ -65,15 +65,27 @@ class FundingSourcesController extends Controller
         $source = FundingSource::query()->create([
             'idUser' => $user->idUser,
             'name' => $name,
-            'initialBalance' => $initialBalance,
+            'initialBalance' => 0, // Set to 0 because we create a transaction for it
         ]);
+
+        if ($initialBalance > 0) {
+            Transaction::create([
+                'idUser' => $user->idUser,
+                'type' => 'income',
+                'amount' => $initialBalance,
+                'description' => "Initial Balance for $name",
+                'date' => now(),
+                'source' => $name,
+                // We leave idCategory null or let user categorize it later
+            ]);
+        }
 
         return response()->json([
             'idFundingSource' => $source->idFundingSource,
             'idUser' => $source->idUser,
             'name' => $source->name,
-            'initialBalance' => (float) $source->initialBalance,
-            'availableBalance' => $this->availableBalance((int) $user->idUser, (int) $source->idFundingSource, (float) $source->initialBalance),
+            'initialBalance' => (float) $initialBalance, // Show original in response
+            'availableBalance' => $initialBalance,
             'createdAt' => $source->createdAt,
             'updatedAt' => $source->updatedAt,
         ], 201);
