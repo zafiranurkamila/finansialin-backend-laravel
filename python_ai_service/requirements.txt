@@ -1,17 +1,28 @@
+# ── Web Framework ─────────────────────────────────────────────────────────────
 fastapi
-uvicorn
-prophet
-pandas
-pydantic
-holidays
-requests
+uvicorn[standard]
 python-multipart
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+python-dotenv
+pydantic
+
+# ── HTTP Client ───────────────────────────────────────────────────────────────
+requests
+
+# ── AI / LLM (LangChain + Gemini) ────────────────────────────────────────────
+langchain
+langchain-core
+langchain-google-genai
+
+# ── OCR Model (Donut via HuggingFace Transformers) ───────────────────────────
 torch
 torchvision
 transformers
 sentencepiece
 protobuf
 Pillow
-langchain
-python-dotenv
-langchain-google-genai
+# ── Predictive Budget (Prophet / Time-Series) ────────────────────────────────
+prophet
+pandas
+holidays
