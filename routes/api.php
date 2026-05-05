@@ -7,7 +7,7 @@ use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\PreferencesController;
 use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\SubscriptionsController;
-use App\Http\Controllers\InsightsController;
+use App\Http\Controllers\AiController;
 use App\Http\Controllers\TransactionsController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WebhookIntegrationsController;
@@ -89,11 +89,11 @@ Route::middleware('token.auth')->group(function (): void {
     Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
     Route::patch('/notifications/{id}/read', [NotificationsController::class, 'markRead']);
 
-    Route::get('/insights/assistant', [InsightsController::class, 'assistant']);
-    Route::get('/insights/dashboard-summary', [InsightsController::class, 'dashboardSummary']);
-    Route::post('/insights/receipt-ocr', [InsightsController::class, 'receiptOcr']);
-    Route::post('/insights/predict-early-warning', [InsightsController::class, 'predictEarlyWarning']);
-    Route::post('/insights/chat', [InsightsController::class, 'chat']);
+    Route::get('/ai/assistant', [AiController::class, 'assistant']);
+    Route::get('/ai/dashboard-summary', [AiController::class, 'dashboardSummary']);
+    Route::post('/ai/receipt-ocr', [AiController::class, 'receiptOcr']);
+    Route::post('/ai/predict-early-warning', [AiController::class, 'predictEarlyWarning']);
+    Route::post('/ai/chat', [AiController::class, 'chat']);
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 
     Route::get('/salaries/summary/overview', [SalaryController::class, 'summary']);

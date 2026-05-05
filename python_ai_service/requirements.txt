@@ -13,3 +13,5 @@ sentencepiece
 protobuf
 Pillow
 langchain
+python-dotenv
+langchain-google-genai

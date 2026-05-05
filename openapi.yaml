@@ -1,11 +1,11 @@
-openapi: 3.0.3
+﻿openapi: 3.0.3
 info:
   title: Finansialin API Documentation
   version: 1.0.0
   description: >
     Dokumentasi Swagger (OpenAPI 3.0) untuk aplikasi backend Finansialin (Laravel).
     Berisi dokumentasi untuk endpoint Auth, Users, Categories, Resources,
-    Transactions, Budgets, Notifications, Insights, Subscriptions, dan Webhooks.
+    Transactions, Budgets, Notifications, AI Features, Subscriptions, dan Webhooks.
 servers:
   - url: "http://127.0.0.1:8000/api"
     description: Local Server
@@ -28,7 +28,7 @@ tags:
     description: Manajemen anggaran (budgets) dan alokasi
   - name: Notifications
     description: Pengelolaan notifikasi pengguna
-  - name: Insights
+  - name: AI Features
     description: AI Assistant dan fitur Receipt OCR
   - name: Subscriptions
     description: Deteksi langganan dan pengeluaran berulang
@@ -1473,10 +1473,10 @@ paths:
         "200":
           description: All Marked
 
-  /insights/receipt-ocr:
+  /ai/receipt-ocr:
     post:
       tags:
-        - Insights
+        - AI Features
       summary: Auto-Scan Kuitansi (OCR AI Lokal)
       description: >
         Endpoint ini digunakan untuk mendukung fitur "Pencatatan Otomatis" dari sebuah kuitansi. 
@@ -1522,10 +1522,10 @@ paths:
                         type: string
                         example: "Pengeluaran Lainnya"
 
-  /insights/predict-early-warning:
+  /ai/predict-early-warning:
     post:
       tags:
-        - Insights
+        - AI Features
       summary: Predictive Budget Early Warning
       description: >
         Memprediksi apakah pengeluaran pengguna akan melebihi budget di bulan ini menggunakan Machine Learning (Time Series Forecasting). 
@@ -1581,10 +1581,10 @@ paths:
                     type: string
                     example: "Warning: Projected total expenses exceed your monthly budget. Consider adjusting your spending habits."
 
-  /insights/assistant:
+  /ai/assistant:
     get:
       tags:
-        - Insights
+        - AI Features
       summary: User AI Assistant (Summary & Tips)
       description: >
         Menghasilkan ringkasan kondisi keuangan, tips hemat, atau peringatan budget untuk dashboard user. 
@@ -1620,7 +1620,7 @@ paths:
   /chat:
     post:
       tags:
-        - Insights
+        - AI Features
       summary: Chat with Finansialin AI
       description: >
         Chat interaktif dengan AI Assistant (LLM) yang terintegrasi dengan metode Function Calling (ReAct Agent).

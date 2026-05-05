@@ -17,8 +17,15 @@ use App\Services\FinancialInsightService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class ChatbotController extends Controller
+class AiController extends Controller
 {
+    protected $insightService;
+
+    public function __construct()
+    {
+        $this->insightService = new FinancialInsightService();
+    }
+
     public function assistant(Request $request): JsonResponse
     {
         /** @var User $user */
@@ -124,11 +131,12 @@ class ChatbotController extends Controller
         }
 
         try {
+            $serviceUrl = config('services.ocr.service_url', 'http://127.0.0.1:8001');
             $response = Http::attach(
                 'receiptImage', 
                 file_get_contents($file->getRealPath()), 
                 $file->getClientOriginalName()
-            )->post('http://localhost:8000/predict/ocr');
+            )->post($serviceUrl . '/predict/ocr');
 
             if ($response->successful()) {
                 return response()->json($response->json(), 200);
@@ -161,7 +169,8 @@ class ChatbotController extends Controller
         }
 
         try {
-            $response = Http::post('http://localhost:8000/predict/budget', $request->all());
+            $serviceUrl = config('services.ocr.service_url', 'http://127.0.0.1:8001');
+            $response = Http::post($serviceUrl . '/predict/budget', $request->all());
 
             if ($response->successful()) {
                 return response()->json($response->json(), 200);
