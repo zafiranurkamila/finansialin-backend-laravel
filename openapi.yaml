@@ -14,6 +14,8 @@ security:
   - BearerAuth: []
 
 tags:
+  - name: Analytics
+    description: Analitik pengeluaran, pemasukan, dan tren bulanan
   - name: Auth
     description: Autentikasi pengguna, token, dan 2FA
   - name: Users
@@ -1821,6 +1823,110 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+
+  /analytics/monthly:
+    get:
+      tags:
+        - Analytics
+      summary: Get Monthly Analytics
+      description: Mendapatkan ringkasan total pengeluaran dan pemasukan per kategori untuk bulan tertentu.
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: month
+          schema:
+            type: integer
+          description: Bulan (1-12). Default bulan saat ini.
+        - in: query
+          name: year
+          schema:
+            type: integer
+          description: Tahun. Default tahun saat ini.
+      responses:
+        "200":
+          description: Monthly analytics data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  period:
+                    type: object
+                    properties:
+                      month:
+                        type: integer
+                      year:
+                        type: integer
+                  summary:
+                    type: object
+                    properties:
+                      totalExpense:
+                        type: number
+                      totalIncome:
+                        type: number
+                      net:
+                        type: number
+                  expenseByCategory:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        idCategory:
+                          type: integer
+                        name:
+                          type: string
+                        amount:
+                          type: number
+                  incomeByCategory:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        idCategory:
+                          type: integer
+                        name:
+                          type: string
+                        amount:
+                          type: number
+
+  /analytics/trend:
+    get:
+      tags:
+        - Analytics
+      summary: Get Spending Trend
+      description: Mendapatkan data tren pemasukan dan pengeluaran beberapa bulan terakhir.
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: months
+          schema:
+            type: integer
+          description: Jumlah bulan ke belakang (default 6).
+      responses:
+        "200":
+          description: Trend data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    month_label:
+                      type: string
+                      example: "Dec 2025"
+                    month:
+                      type: integer
+                    year:
+                      type: integer
+                    income:
+                      type: number
+                    expense:
+                      type: number
+                    net:
+                      type: number
 
   /subscriptions/dashboard:
     get:

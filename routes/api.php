@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BudgetsController;
 use App\Http\Controllers\CategoriesController;
@@ -64,6 +65,11 @@ Route::middleware('token.auth')->group(function (): void {
     Route::put('/categories/{id}', [CategoriesController::class, 'update']);
     Route::delete('/categories/{id}', [CategoriesController::class, 'destroy']);
 
+    Route::prefix('analytics')->group(function () {
+        Route::get('/monthly', [AnalyticsController::class, 'monthly']);
+        Route::get('/trend', [AnalyticsController::class, 'trend']);
+    });
+
     Route::get('/transactions', [TransactionsController::class, 'index']);
     Route::get('/transactions/search', [TransactionsController::class, 'search']);
     Route::post('/transactions', [TransactionsController::class, 'store']);
@@ -89,11 +95,13 @@ Route::middleware('token.auth')->group(function (): void {
     Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
     Route::patch('/notifications/{id}/read', [NotificationsController::class, 'markRead']);
 
-    Route::get('/assistant', [ChatbotController::class, 'assistant']);
-    Route::get('/dashboard-summary', [ChatbotController::class, 'dashboardSummary']);
-    Route::post('/receipt-ocr', [ChatbotController::class, 'receiptOcr']);
-    Route::post('/predict-early-warning', [ChatbotController::class, 'predictEarlyWarning']);
-    Route::post('/chat', [ChatbotController::class, 'chat']);
+    Route::prefix('insights')->group(function () {
+        Route::get('/assistant', [ChatbotController::class, 'assistant']);
+        Route::get('/dashboard-summary', [ChatbotController::class, 'dashboardSummary']);
+        Route::post('/receipt-ocr', [ChatbotController::class, 'receiptOcr']);
+        Route::post('/predict-early-warning', [ChatbotController::class, 'predictEarlyWarning']);
+        Route::post('/chat', [ChatbotController::class, 'chat']);
+    });
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 
     Route::get('/salaries/summary/overview', [SalaryController::class, 'summary']);
