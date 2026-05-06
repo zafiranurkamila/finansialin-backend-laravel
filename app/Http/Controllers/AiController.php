@@ -17,8 +17,15 @@ use App\Services\FinancialInsightService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class ChatbotController extends Controller
+class AiController extends Controller
 {
+    protected $insightService;
+
+    public function __construct()
+    {
+        $this->insightService = new FinancialInsightService();
+    }
+
     public function assistant(Request $request): JsonResponse
     {
         /** @var User $user */

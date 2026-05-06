@@ -22,7 +22,6 @@ transformers
 sentencepiece
 protobuf
 Pillow
-
 # ── Predictive Budget (Prophet / Time-Series) ────────────────────────────────
 prophet
 pandas

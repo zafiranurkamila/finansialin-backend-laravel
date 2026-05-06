@@ -1,4 +1,4 @@
-# Finansialin Laravel API Documentation (Draft)
+﻿# Finansialin Laravel API Documentation (Draft)
 
 This document is generated from:
 
@@ -543,9 +543,9 @@ Mark one notification as read.
 
 Mark all unread notifications as read.
 
-## Insights Endpoints (Protected)
+## AI Features Endpoints (Protected)
 
-### GET `/api/insights/assistant`
+### GET `/api/ai/assistant`
 
 Generate finance summary + assistant text.
 
@@ -568,7 +568,7 @@ Response includes:
 - `assistantReply`
 - `quickPrompts[]`
 
-### POST `/api/insights/receipt-ocr`
+### POST `/api/ai/receipt-ocr`
 
 Extract receipt data using OCR pipeline.
 

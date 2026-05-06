@@ -8,7 +8,7 @@ use App\Http\Controllers\NotificationsController;
 use App\Http\Controllers\PreferencesController;
 use App\Http\Controllers\SecurityController;
 use App\Http\Controllers\SubscriptionsController;
-use App\Http\Controllers\ChatbotController;
+use App\Http\Controllers\AiController;
 use App\Http\Controllers\TransactionsController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WebhookIntegrationsController;
@@ -95,12 +95,12 @@ Route::middleware('token.auth')->group(function (): void {
     Route::patch('/notifications/read-all', [NotificationsController::class, 'markAllRead']);
     Route::patch('/notifications/{id}/read', [NotificationsController::class, 'markRead']);
 
-    Route::prefix('insights')->group(function () {
-        Route::get('/assistant', [ChatbotController::class, 'assistant']);
-        Route::get('/dashboard-summary', [ChatbotController::class, 'dashboardSummary']);
-        Route::post('/receipt-ocr', [ChatbotController::class, 'receiptOcr']);
-        Route::post('/predict-early-warning', [ChatbotController::class, 'predictEarlyWarning']);
-        Route::post('/chat', [ChatbotController::class, 'chat']);
+    Route::prefix('ai')->group(function () {
+        Route::get('/assistant', [AiController::class, 'assistant']);
+        Route::get('/dashboard-summary', [AiController::class, 'dashboardSummary']);
+        Route::post('/receipt-ocr', [AiController::class, 'receiptOcr']);
+        Route::post('/predict-early-warning', [AiController::class, 'predictEarlyWarning']);
+        Route::post('/chat', [AiController::class, 'chat']);
     });
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 
