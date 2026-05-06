@@ -363,6 +363,31 @@ class AiController extends Controller
                         ],
                     ],
                     [
+                        'name' => 'getMonthlySummary',
+                        'description' => 'Gunakan tool ini untuk mendapatkan total income, total expense, net, dan kategori pengeluaran terbesar pada bulan tertentu.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'month' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Bulan dalam format angka (1-12). Opsional.'
+                                ],
+                                'year' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Tahun dalam format angka (misal: 2023). Opsional.'
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => 'getAllTimeSummary',
+                        'description' => 'Gunakan tool ini untuk mendapatkan total income dan expense sepanjang waktu (seluruh data).',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
+                    [
                         'name' => 'getBudgetStatus',
                         'description' => 'Gunakan tool ini untuk melihat status limit budget pengguna dan mendeteksi apakah pengeluaran overbudget atau mendekati batas.',
                         'parameters' => [
@@ -392,6 +417,35 @@ class AiController extends Controller
                             ],
                         ],
                     ],
+                    [
+                        'name' => 'getSpendingTrend',
+                        'description' => 'Gunakan tool ini untuk melihat tren income/expense beberapa bulan terakhir.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'months' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Jumlah bulan terakhir yang ingin dianalisis (1-12). Opsional.'
+                                ]
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => 'getUserFinancialProfile',
+                        'description' => 'Gunakan tool ini untuk melihat ringkasan profil finansial (saldo total, total income/expense, net).',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
+                    [
+                        'name' => 'getSavingsGoals',
+                        'description' => 'Gunakan tool ini untuk melihat target/budget aktif pengguna sebagai referensi goals.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
                 ]
             ]
         ];
@@ -413,9 +467,18 @@ GAYA BAHASA:
 
 PENGGUNAAN TOOLS:
 - Jika ditanya saldo, gunakan `getWalletBalances`.
-- Jika ditanya pengeluaran/pemasukan bulan ini atau perbandingan kategori, gunakan `getMonthlyAnalytics`.
+- Jika ditanya income/expense bulan ini atau bulan tertentu, gunakan `getMonthlySummary`.
+- Jika ditanya total income/expense sepanjang waktu, gunakan `getAllTimeSummary`.
+- Jika ditanya pengeluaran/pemasukan per kategori, gunakan `getMonthlyAnalytics`.
 - Jika ditanya tentang budget atau apakah aman belanja sesuatu, gunakan `getBudgetStatus`.
 - Jika ditanya transaksi terakhir, gunakan `getRecentTransactions`.
+- Jika ditanya tren beberapa bulan, gunakan `getSpendingTrend`.
+- Jika ditanya profil finansial keseluruhan, gunakan `getUserFinancialProfile`.
+- Jika ditanya goals/target, gunakan `getSavingsGoals`.
+
+REKOMENDASI:
+- Setelah melihat data, berikan rekomendasi spesifik yang mengacu ke kategori pengeluaran terbesar.
+- Jika data kosong, jelaskan dengan jujur dan tawarkan langkah awal (misal: mulai catat transaksi). 
 
 KEAMANAN & PRIVASI:
 - Jangan memberikan data sensitif di luar konteks keuangan pengguna.
@@ -472,28 +535,39 @@ KEAMANAN & PRIVASI:
         }
 
         // gemini-1.5-flash has broader API access; gemini-2.5-flash may require allowlist
-        $model = config('services.gemini.model', 'gemini-1.5-flash');
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+        $primaryModel = config('services.gemini.model', 'gemini-1.5-flash');
+        $fallbackModel = config('services.gemini.fallback_model', 'gemini-1.5-flash');
+        $modelsToTry = array_values(array_unique([$primaryModel, $fallbackModel]));
 
         try {
             $http = Http::withHeaders(['Content-Type' => 'application/json'])
                 ->withOptions(['verify' => $verify])
                 ->timeout(60);
 
-            $response = $http->post($url, $payload);
-            $data = $response->json();
+            $response = null;
+            $data = null;
+            foreach ($modelsToTry as $model) {
+                $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                $response = $http->post($url, $payload);
+                $data = $response->json();
 
-            if ($response->failed()) {
-                // Log the actual Gemini error server-side for debugging
+                if ($response->successful()) {
+                    break;
+                }
+
+                $status = $response->status();
                 Log::error('Gemini API Error (1st request)', [
-                    'status'  => $response->status(),
+                    'status'  => $status,
                     'model'   => $model,
                     'details' => $data,
                 ]);
 
-                // Never proxy Gemini's 4xx status codes to the client:
-                // A 403 from Gemini (bad key / quota / model access) must NOT
-                // reach the frontend as 403 — it would be misread as an auth error.
+                if (!in_array($status, [429, 503], true)) {
+                    break;
+                }
+            }
+
+            if (!$response || $response->failed()) {
                 return response()->json([
                     'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
                     'details' => $data,
@@ -511,6 +585,16 @@ KEAMANAN & PRIVASI:
             return response()->json([
                 'message' => 'Failed to connect to Gemini service.',
                 'details' => $msg,
+            ], 502);
+        }
+
+        if (!isset($data['candidates'][0]['content']['parts'])) {
+            Log::error('Gemini API response missing parts', [
+                'details' => $data,
+            ]);
+            return response()->json([
+                'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                'details' => $data,
             ], 502);
         }
 
@@ -533,8 +617,13 @@ KEAMANAN & PRIVASI:
             $functionResult = match ($functionName) {
                 'getWalletBalances'     => $service->getWalletBalances($userId),
                 'getMonthlyAnalytics'   => $service->getMonthlyAnalytics($userId, $args['month'] ?? null, $args['year'] ?? null),
+                'getMonthlySummary'     => $service->getMonthlySummary($userId, $args['month'] ?? null, $args['year'] ?? null),
+                'getAllTimeSummary'     => $service->getAllTimeSummary($userId),
                 'getBudgetStatus'       => $service->getBudgetStatus($userId, $args['month'] ?? null, $args['year'] ?? null),
                 'getRecentTransactions' => $service->getRecentTransactions($userId, $args['limit'] ?? 5),
+                'getSpendingTrend'      => $service->getSpendingTrend($userId, $args['months'] ?? 3),
+                'getUserFinancialProfile' => $service->getUserFinancialProfile($userId),
+                'getSavingsGoals'       => $service->getSavingsGoals($userId),
                 default                 => [],
             };
 
@@ -565,16 +654,30 @@ KEAMANAN & PRIVASI:
 
             // Second Gemini request — now it has real data to compose a final reply
             try {
-                $secondResponse = $http->post($url, $payload);
-                $data = $secondResponse->json();
+                $secondResponse = null;
+                $data = null;
+                foreach ($modelsToTry as $model) {
+                    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                    $secondResponse = $http->post($url, $payload);
+                    $data = $secondResponse->json();
 
-                if ($secondResponse->failed()) {
+                    if ($secondResponse->successful()) {
+                        break;
+                    }
+
+                    $status = $secondResponse->status();
                     Log::error('Gemini API Error (2nd request)', [
-                        'status'  => $secondResponse->status(),
+                        'status'  => $status,
                         'model'   => $model,
                         'details' => $data,
                     ]);
 
+                    if (!in_array($status, [429, 503], true)) {
+                        break;
+                    }
+                }
+
+                if (!$secondResponse || $secondResponse->failed()) {
                     return response()->json([
                         'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
                         'details' => $data,
@@ -586,6 +689,16 @@ KEAMANAN & PRIVASI:
                     'details' => $e->getMessage(),
                 ], 502);
             }
+        }
+
+        if (!isset($data['candidates'][0]['content']['parts'])) {
+            Log::error('Gemini API response missing final parts', [
+                'details' => $data,
+            ]);
+            return response()->json([
+                'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                'details' => $data,
+            ], 502);
         }
 
         // Pick the first non-empty text part from the final response
