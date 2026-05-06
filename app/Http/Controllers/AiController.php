@@ -398,7 +398,28 @@ class AiController extends Controller
 
         $systemInstruction = [
             'parts' => [
-                ['text' => 'Kamu adalah Finansialin AI, asisten pribadi virtual yang proaktif, cerdas, dan empatik. Kamu memiliki memori percakapan berkat history yang diberikan. Jawab dengan gaya bahasa kasual (aku/kamu). Gunakan tools yang tersedia untuk merespons akurat terkait keuangan pengguna. Jawab juga pertanyaan sapaan atau trivia dengan luwes tanpa memaksakan diri menjadi kaku. Bila perlu, berikan saran penghematan atau peringatan budget sesuai data riil mereka.']
+                ['text' => 'Kamu adalah Finansialin AI, asisten keuangan pribadi yang cerdas, proaktif, dan empatik. 
+
+TUGAS UTAMA:
+1. Membantu pengguna memahami kondisi keuangan mereka menggunakan tools yang tersedia.
+2. Memberikan saran penghematan (saving tips) berdasarkan data riil.
+3. Memberikan peringatan jika ada budget yang hampir habis atau overbudget.
+4. Menjawab pertanyaan seputar transaksi terakhir, saldo, dan analitik bulanan.
+
+GAYA BAHASA:
+- Gunakan gaya bahasa kasual namun profesional (aku/kamu).
+- Bersikap suportif dan memberikan semangat untuk menabung.
+- Jawab sapaan (halo, apa kabar) dengan ramah.
+
+PENGGUNAAN TOOLS:
+- Jika ditanya saldo, gunakan `getWalletBalances`.
+- Jika ditanya pengeluaran/pemasukan bulan ini atau perbandingan kategori, gunakan `getMonthlyAnalytics`.
+- Jika ditanya tentang budget atau apakah aman belanja sesuatu, gunakan `getBudgetStatus`.
+- Jika ditanya transaksi terakhir, gunakan `getRecentTransactions`.
+
+KEAMANAN & PRIVASI:
+- Jangan memberikan data sensitif di luar konteks keuangan pengguna.
+- Jika data dari tool kosong, sampaikan dengan jujur bahwa pengguna belum memiliki data tersebut.']
             ]
         ];
 
@@ -450,7 +471,9 @@ class AiController extends Controller
             }
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$apiKey}";
+        // gemini-1.5-flash has broader API access; gemini-2.5-flash may require allowlist
+        $model = config('services.gemini.model', 'gemini-1.5-flash');
+        $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
 
         try {
             $http = Http::withHeaders(['Content-Type' => 'application/json'])
@@ -461,10 +484,20 @@ class AiController extends Controller
             $data = $response->json();
 
             if ($response->failed()) {
-                return response()->json([
-                    'message' => 'Gemini API Error (1st request)',
+                // Log the actual Gemini error server-side for debugging
+                Log::error('Gemini API Error (1st request)', [
+                    'status'  => $response->status(),
+                    'model'   => $model,
                     'details' => $data,
-                ], $response->status());
+                ]);
+
+                // Never proxy Gemini's 4xx status codes to the client:
+                // A 403 from Gemini (bad key / quota / model access) must NOT
+                // reach the frontend as 403 — it would be misread as an auth error.
+                return response()->json([
+                    'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                    'details' => $data,
+                ], 502);
             }
         } catch (Throwable $e) {
             $msg = $e->getMessage();
@@ -536,10 +569,16 @@ class AiController extends Controller
                 $data = $secondResponse->json();
 
                 if ($secondResponse->failed()) {
-                    return response()->json([
-                        'message' => 'Gemini API Error (2nd request)',
+                    Log::error('Gemini API Error (2nd request)', [
+                        'status'  => $secondResponse->status(),
+                        'model'   => $model,
                         'details' => $data,
-                    ], $secondResponse->status());
+                    ]);
+
+                    return response()->json([
+                        'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                        'details' => $data,
+                    ], 502);
                 }
             } catch (Throwable $e) {
                 return response()->json([
