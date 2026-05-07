@@ -21,6 +21,8 @@ class Transaction extends Model
         'amount',
         'description',
         'date',
+        'source',
+        'receiptImagePath',
     ];
 
     protected $hidden = [
