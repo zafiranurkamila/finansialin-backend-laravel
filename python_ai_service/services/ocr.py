@@ -97,7 +97,7 @@ def extract_receipt_data(image: Image.Image, processor, model, device) -> dict:
             "merchant_name": merchant_name,
             "total_amount": total_amount,
             "date": date,
-            "suggested_category": "Pengeluaran Lainnya"
+            "suggested_category": 10
         },
         "debug_raw_ai": parsed_data
     }

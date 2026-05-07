@@ -12,6 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // ─── CORS must run first (before routing & auth) ──────────────────────
+        // This ensures browser preflight OPTIONS requests receive proper
+        // CORS headers instead of being blocked with 403 Forbidden.
+        $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
+
         $middleware->alias([
             'token.auth' => \App\Http\Middleware\TokenAuthMiddleware::class,
             'token.2fa.pending' => \App\Http\Middleware\PendingTwoFactorTokenMiddleware::class,

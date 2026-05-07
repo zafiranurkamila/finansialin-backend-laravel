@@ -363,6 +363,31 @@ class AiController extends Controller
                         ],
                     ],
                     [
+                        'name' => 'getMonthlySummary',
+                        'description' => 'Gunakan tool ini untuk mendapatkan total income, total expense, net, dan kategori pengeluaran terbesar pada bulan tertentu.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'month' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Bulan dalam format angka (1-12). Opsional.'
+                                ],
+                                'year' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Tahun dalam format angka (misal: 2023). Opsional.'
+                                ],
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => 'getAllTimeSummary',
+                        'description' => 'Gunakan tool ini untuk mendapatkan total income dan expense sepanjang waktu (seluruh data).',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
+                    [
                         'name' => 'getBudgetStatus',
                         'description' => 'Gunakan tool ini untuk melihat status limit budget pengguna dan mendeteksi apakah pengeluaran overbudget atau mendekati batas.',
                         'parameters' => [
@@ -392,13 +417,72 @@ class AiController extends Controller
                             ],
                         ],
                     ],
+                    [
+                        'name' => 'getSpendingTrend',
+                        'description' => 'Gunakan tool ini untuk melihat tren income/expense beberapa bulan terakhir.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => [
+                                'months' => [
+                                    'type' => 'INTEGER',
+                                    'description' => 'Jumlah bulan terakhir yang ingin dianalisis (1-12). Opsional.'
+                                ]
+                            ],
+                        ],
+                    ],
+                    [
+                        'name' => 'getUserFinancialProfile',
+                        'description' => 'Gunakan tool ini untuk melihat ringkasan profil finansial (saldo total, total income/expense, net).',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
+                    [
+                        'name' => 'getSavingsGoals',
+                        'description' => 'Gunakan tool ini untuk melihat target/budget aktif pengguna sebagai referensi goals.',
+                        'parameters' => [
+                            'type' => 'OBJECT',
+                            'properties' => new \stdClass(),
+                        ],
+                    ],
                 ]
             ]
         ];
 
         $systemInstruction = [
             'parts' => [
-                ['text' => 'Kamu adalah Finansialin AI, asisten pribadi virtual yang proaktif, cerdas, dan empatik. Kamu memiliki memori percakapan berkat history yang diberikan. Jawab dengan gaya bahasa kasual (aku/kamu). Gunakan tools yang tersedia untuk merespons akurat terkait keuangan pengguna. Jawab juga pertanyaan sapaan atau trivia dengan luwes tanpa memaksakan diri menjadi kaku. Bila perlu, berikan saran penghematan atau peringatan budget sesuai data riil mereka.']
+                ['text' => 'Kamu adalah Finansialin AI, asisten keuangan pribadi yang cerdas, proaktif, dan empatik. 
+
+TUGAS UTAMA:
+1. Membantu pengguna memahami kondisi keuangan mereka menggunakan tools yang tersedia.
+2. Memberikan saran penghematan (saving tips) berdasarkan data riil.
+3. Memberikan peringatan jika ada budget yang hampir habis atau overbudget.
+4. Menjawab pertanyaan seputar transaksi terakhir, saldo, dan analitik bulanan.
+
+GAYA BAHASA:
+- Gunakan gaya bahasa kasual namun profesional (aku/kamu).
+- Bersikap suportif dan memberikan semangat untuk menabung.
+- Jawab sapaan (halo, apa kabar) dengan ramah.
+
+PENGGUNAAN TOOLS:
+- Jika ditanya saldo, gunakan `getWalletBalances`.
+- Jika ditanya income/expense bulan ini atau bulan tertentu, gunakan `getMonthlySummary`.
+- Jika ditanya total income/expense sepanjang waktu, gunakan `getAllTimeSummary`.
+- Jika ditanya pengeluaran/pemasukan per kategori, gunakan `getMonthlyAnalytics`.
+- Jika ditanya tentang budget atau apakah aman belanja sesuatu, gunakan `getBudgetStatus`.
+- Jika ditanya transaksi terakhir, gunakan `getRecentTransactions`.
+- Jika ditanya tren beberapa bulan, gunakan `getSpendingTrend`.
+- Jika ditanya profil finansial keseluruhan, gunakan `getUserFinancialProfile`.
+- Jika ditanya goals/target, gunakan `getSavingsGoals`.
+
+REKOMENDASI:
+- Setelah melihat data, berikan rekomendasi spesifik yang mengacu ke kategori pengeluaran terbesar.
+- Jika data kosong, jelaskan dengan jujur dan tawarkan langkah awal (misal: mulai catat transaksi). 
+
+KEAMANAN & PRIVASI:
+- Jangan memberikan data sensitif di luar konteks keuangan pengguna.
+- Jika data dari tool kosong, sampaikan dengan jujur bahwa pengguna belum memiliki data tersebut.']
             ]
         ];
 
@@ -450,21 +534,44 @@ class AiController extends Controller
             }
         }
 
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$apiKey}";
+        // gemini-1.5-flash has broader API access; gemini-2.5-flash may require allowlist
+        $primaryModel = config('services.gemini.model', 'gemini-1.5-flash');
+        $fallbackModel = config('services.gemini.fallback_model', 'gemini-1.5-flash');
+        $modelsToTry = array_values(array_unique([$primaryModel, $fallbackModel]));
 
         try {
             $http = Http::withHeaders(['Content-Type' => 'application/json'])
                 ->withOptions(['verify' => $verify])
                 ->timeout(60);
 
-            $response = $http->post($url, $payload);
-            $data = $response->json();
+            $response = null;
+            $data = null;
+            foreach ($modelsToTry as $model) {
+                $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                $response = $http->post($url, $payload);
+                $data = $response->json();
 
-            if ($response->failed()) {
-                return response()->json([
-                    'message' => 'Gemini API Error (1st request)',
+                if ($response->successful()) {
+                    break;
+                }
+
+                $status = $response->status();
+                Log::error('Gemini API Error (1st request)', [
+                    'status'  => $status,
+                    'model'   => $model,
                     'details' => $data,
-                ], $response->status());
+                ]);
+
+                if (!in_array($status, [429, 503], true)) {
+                    break;
+                }
+            }
+
+            if (!$response || $response->failed()) {
+                return response()->json([
+                    'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                    'details' => $data,
+                ], 502);
             }
         } catch (Throwable $e) {
             $msg = $e->getMessage();
@@ -478,6 +585,16 @@ class AiController extends Controller
             return response()->json([
                 'message' => 'Failed to connect to Gemini service.',
                 'details' => $msg,
+            ], 502);
+        }
+
+        if (!isset($data['candidates'][0]['content']['parts'])) {
+            Log::error('Gemini API response missing parts', [
+                'details' => $data,
+            ]);
+            return response()->json([
+                'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                'details' => $data,
             ], 502);
         }
 
@@ -500,8 +617,13 @@ class AiController extends Controller
             $functionResult = match ($functionName) {
                 'getWalletBalances'     => $service->getWalletBalances($userId),
                 'getMonthlyAnalytics'   => $service->getMonthlyAnalytics($userId, $args['month'] ?? null, $args['year'] ?? null),
+                'getMonthlySummary'     => $service->getMonthlySummary($userId, $args['month'] ?? null, $args['year'] ?? null),
+                'getAllTimeSummary'     => $service->getAllTimeSummary($userId),
                 'getBudgetStatus'       => $service->getBudgetStatus($userId, $args['month'] ?? null, $args['year'] ?? null),
                 'getRecentTransactions' => $service->getRecentTransactions($userId, $args['limit'] ?? 5),
+                'getSpendingTrend'      => $service->getSpendingTrend($userId, $args['months'] ?? 3),
+                'getUserFinancialProfile' => $service->getUserFinancialProfile($userId),
+                'getSavingsGoals'       => $service->getSavingsGoals($userId),
                 default                 => [],
             };
 
@@ -532,14 +654,34 @@ class AiController extends Controller
 
             // Second Gemini request — now it has real data to compose a final reply
             try {
-                $secondResponse = $http->post($url, $payload);
-                $data = $secondResponse->json();
+                $secondResponse = null;
+                $data = null;
+                foreach ($modelsToTry as $model) {
+                    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                    $secondResponse = $http->post($url, $payload);
+                    $data = $secondResponse->json();
 
-                if ($secondResponse->failed()) {
-                    return response()->json([
-                        'message' => 'Gemini API Error (2nd request)',
+                    if ($secondResponse->successful()) {
+                        break;
+                    }
+
+                    $status = $secondResponse->status();
+                    Log::error('Gemini API Error (2nd request)', [
+                        'status'  => $status,
+                        'model'   => $model,
                         'details' => $data,
-                    ], $secondResponse->status());
+                    ]);
+
+                    if (!in_array($status, [429, 503], true)) {
+                        break;
+                    }
+                }
+
+                if (!$secondResponse || $secondResponse->failed()) {
+                    return response()->json([
+                        'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                        'details' => $data,
+                    ], 502);
                 }
             } catch (Throwable $e) {
                 return response()->json([
@@ -547,6 +689,16 @@ class AiController extends Controller
                     'details' => $e->getMessage(),
                 ], 502);
             }
+        }
+
+        if (!isset($data['candidates'][0]['content']['parts'])) {
+            Log::error('Gemini API response missing final parts', [
+                'details' => $data,
+            ]);
+            return response()->json([
+                'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
+                'details' => $data,
+            ], 502);
         }
 
         // Pick the first non-empty text part from the final response
