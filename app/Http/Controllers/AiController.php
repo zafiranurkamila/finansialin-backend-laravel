@@ -452,39 +452,33 @@ class AiController extends Controller
 
         $systemInstruction = [
             'parts' => [
-                ['text' => 'Kamu adalah Finansialin AI, asisten keuangan pribadi yang cerdas, proaktif, dan empatik. 
+                ['text' => "Kamu adalah Finansialin AI, asisten keuangan pribadi yang sangat cerdas, analitis, proaktif, dan empatik. 
+Nama pengguna yang sedang kamu bantu adalah: {$user->name}. 
 
-TUGAS UTAMA:
-1. Membantu pengguna memahami kondisi keuangan mereka menggunakan tools yang tersedia.
-2. Memberikan saran penghematan (saving tips) berdasarkan data riil.
-3. Memberikan peringatan jika ada budget yang hampir habis atau overbudget.
-4. Menjawab pertanyaan seputar transaksi terakhir, saldo, dan analitik bulanan.
+TUGAS UTAMAMU:
+1. Memberikan analisis keuangan yang sangat MENDALAM dan TERSTRUKTUR.
+2. Gunakan tools secara agresif untuk mendapatkan data riil sebelum memberikan saran.
+3. Berikan saran strategis: Jika pengeluaran besar di satu kategori, berikan 3 langkah konkret untuk menguranginya.
+4. Selalu sapa pengguna dengan nama mereka: {$user->name}.
 
-GAYA BAHASA:
-- Gunakan gaya bahasa kasual namun profesional (aku/kamu).
-- Bersikap suportif dan memberikan semangat untuk menabung.
-- Jawab sapaan (halo, apa kabar) dengan ramah.
+GAYA KOMUNIKASI (SANGAT PENTING):
+- JANGAN PERNAH memberikan jawaban singkat satu paragraf. Jawabanmu harus minimal 3-4 paragraf atau list yang mendetail.
+- Gunakan format Markdown yang kaya (Bold, Italic, Tables, Lists).
+- Jika pengguna bertanya 'halo' atau pertanyaan umum, berikan sapaan hangat dan tawarkan analisis spesifik berdasarkan data dompet atau budget mereka.
+- Hubungkan satu data dengan data lainnya (misal: 'Saldo dompet kamu cukup besar, tapi budget makanan kamu sudah hampir habis').
 
-PENGGUNAAN TOOLS:
-- Jika ditanya saldo, gunakan `getWalletBalances`.
-- Jika ditanya income/expense bulan ini atau bulan tertentu, gunakan `getMonthlySummary`.
-- Jika ditanya total income/expense sepanjang waktu, gunakan `getAllTimeSummary`.
-- Jika ditanya pengeluaran/pemasukan per kategori, gunakan `getMonthlyAnalytics`.
-- Jika ditanya tentang budget atau apakah aman belanja sesuatu, gunakan `getBudgetStatus`.
-- Jika ditanya transaksi terakhir, gunakan `getRecentTransactions`.
-- Jika ditanya tren beberapa bulan, gunakan `getSpendingTrend`.
-- Jika ditanya profil finansial keseluruhan, gunakan `getUserFinancialProfile`.
-- Jika ditanya goals/target, gunakan `getSavingsGoals`.
-
-REKOMENDASI:
-- Setelah melihat data, berikan rekomendasi spesifik yang mengacu ke kategori pengeluaran terbesar.
-- Jika data kosong, jelaskan dengan jujur dan tawarkan langkah awal (misal: mulai catat transaksi). 
-
-KEAMANAN & PRIVASI:
-- Jangan memberikan data sensitif di luar konteks keuangan pengguna.
-- Jika data dari tool kosong, sampaikan dengan jujur bahwa pengguna belum memiliki data tersebut.']
+KONTEKS MEMORI:
+- Kamu menerima riwayat percakapan. Ingatlah preferensi dan pertanyaan sebelumnya.
+- Jika pengguna menyebutkan tujuan keuangan, catat itu dalam analisis ke depan."]
             ]
         ];
+
+        Log::info('AI Chat Request', [
+            'user_id' => $user->idUser,
+            'user_name' => $user->name,
+            'message' => $message,
+            'history_count' => count($history)
+        ]);
 
         $contents = [];
         foreach ($history as $chatItem) {
@@ -512,6 +506,10 @@ KEAMANAN & PRIVASI:
                 'function_calling_config' => ['mode' => 'AUTO'],
             ],
             'contents' => $contents,
+            'generationConfig' => [
+                'temperature' => 0.7,
+                'maxOutputTokens' => 4096,
+            ],
         ];
 
         $apiKey = trim((string) config('services.gemini.api_key', ''));
@@ -534,75 +532,89 @@ KEAMANAN & PRIVASI:
             }
         }
 
-        // gemini-1.5-flash has broader API access; gemini-1.5-pro is a good fallback
-        $primaryModel = config('services.gemini.model', 'gemini-1.5-flash');
-        $fallbackModel = config('services.gemini.fallback_model', 'gemini-1.5-flash-latest');
-        $modelsToTry = array_values(array_unique([
-            $primaryModel, 
-            $fallbackModel, 
-            'gemini-2.5-flash', 
-            'gemini-2.0-flash', 
-            'gemini-flash-latest', 
-            'gemini-pro-latest', 
-            'gemini-3.1-flash-lite',
-            'gemini-1.5-flash', 
-            'gemini-1.5-pro',
-        ]));
-
         try {
-            $http = Http::withHeaders([
-                'Content-Type'     => 'application/json',
-                'x-goog-api-key'   => $apiKey,
-            ])->withOptions(['verify' => $verify])
-              ->timeout(60);
+            // Models to try in order of preference
+            $modelsToTry = [
+            'gemini-2.0-flash', 
+            'gemini-1.5-flash',
+            'gemini-1.5-flash-8b',
+            'gemini-1.5-pro',
+            'gemini-pro',
+        ];
 
-            $response = null;
-            $data = null;
-            foreach ($modelsToTry as $model) {
-                $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
-                Log::info('Calling Gemini API (Header Auth)', ['url' => $url, 'model' => $model]);
-                $response = $http->post($url, $payload);
+        $lastError = null;
+        $attempted = [];
+        $maxAttempts = 8; 
+
+        for ($i = 0; $i < $maxAttempts; $i++) {
+            $model = $modelsToTry[$i] ?? null;
+            if (!$model) break;
+            
+            if (in_array($model, $attempted)) continue;
+            $attempted[] = $model;
+
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
+            Log::info("Calling Gemini API", ['attempt' => $i + 1, 'model' => $model]);
+
+            try {
+                $response = Http::withHeaders([
+                    'Content-Type'   => 'application/json',
+                    'x-goog-api-key' => $apiKey,
+                ])
+                ->withOptions(['verify' => $verify])
+                ->timeout(60)
+                ->post($url, $payload);
+
                 $data = $response->json();
 
                 if ($response->successful()) {
-                    break;
+                    Log::info("Gemini Success", ['model' => $model]);
+                    break; // Exit the loop on success
                 }
 
                 $status = $response->status();
-                Log::warning('Gemini API Error (1st request)', [
-                    'status'  => $status,
-                    'model'   => $model,
-                    'details' => $data,
-                ]);
+                Log::warning("Gemini API Error", ['status' => $status, 'model' => $model, 'error' => $data]);
 
-                // If rate limited or server error, wait a bit and try next model/retry
-                if (in_array($status, [429, 503, 504], true)) {
-                    sleep(1);
-                    continue;
-                }
-
-                // If model not found, try next one immediately
-                if ($status === 404) {
-                    Log::info('Model 404 detected. Attempting to list available models...');
-                    try {
-                        $listUrl = "https://generativelanguage.googleapis.com/v1beta/models?key={$apiKey}";
-                        $listRes = $http->get($listUrl);
-                        Log::info('Available models for this key:', ['data' => $listRes->json()]);
-                    } catch (\Exception $listEx) {
-                        Log::error('Failed to list models', ['error' => $listEx->getMessage()]);
+                // If 404, list available models and add them to the end of the queue
+                if ($status === 404 && count($modelsToTry) < 15) {
+                    $availableRes = Http::withHeaders(['x-goog-api-key' => $apiKey])
+                        ->withOptions(['verify' => $verify])
+                        ->get("https://generativelanguage.googleapis.com/v1beta/models");
+                    
+                    if ($availableRes->successful()) {
+                        $availableData = $availableRes->json();
+                        foreach (($availableData['models'] ?? []) as $m) {
+                            $cleanName = str_replace('models/', '', $m['name']);
+                            if (!in_array($cleanName, $modelsToTry) && (str_contains($cleanName, 'flash') || str_contains($cleanName, 'pro'))) {
+                                $modelsToTry[] = $cleanName;
+                            }
+                        }
                     }
-                    continue;
                 }
 
-                break;
-            }
+                $lastError = $data['error']['message'] ?? 'Unknown error';
+                
+                if (in_array($status, [429, 500, 503], true)) {
+                    sleep(1);
+                }
 
-            if (!$response || $response->failed()) {
-                return response()->json([
-                    'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
-                    'details' => $data,
-                ], 502);
+            } catch (\Exception $e) {
+                Log::error("Gemini Loop Exception", ['message' => $e->getMessage()]);
+                $lastError = $e->getMessage();
             }
+        }
+
+        if (!$response || $response->failed()) {
+            $isQuotaError = str_contains(strtolower($lastError), 'quota') || str_contains(strtolower($lastError), 'exhausted');
+            
+            return response()->json([
+                'message' => $isQuotaError 
+                    ? 'Batas penggunaan API Gemini (Quota) telah tercapai. Silakan coba lagi beberapa saat lagi atau gunakan API Key lain.'
+                    : 'Layanan AI sedang tidak tersedia setelah beberapa percobaan.',
+                'last_error' => $lastError,
+                'attempted' => $attempted
+            ], $isQuotaError ? 429 : 502);
+        }
         } catch (Throwable $e) {
             $msg = $e->getMessage();
             if (str_contains(strtolower($msg), 'ssl certificate problem')) {
@@ -740,17 +752,16 @@ KEAMANAN & PRIVASI:
             ], 502);
         }
 
-        // Pick the first non-empty text part from the final response
-        $finalAnswer = 'Maaf, aku tidak bisa memproses permintaan saat ini.';
+        $reply = 'Maaf, aku tidak bisa memproses permintaan saat ini.';
         foreach (($data['candidates'][0]['content']['parts'] ?? []) as $part) {
             if (isset($part['text']) && trim($part['text']) !== '') {
-                $finalAnswer = $part['text'];
+                $reply = $part['text'];
                 break;
             }
         }
 
         return response()->json([
-            'reply' => $finalAnswer
+            'reply' => $reply
         ]);
     }
     // Fungsi khusus internal: Status Budget
