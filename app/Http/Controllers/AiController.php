@@ -705,7 +705,16 @@ EOD
                 $data = null;
                 foreach ($modelsToTry as $model) {
                     $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
-                    $secondResponse = $http->post($url, $payload);
+                    Log::info("Calling Gemini API (Round 2)", ['model' => $model]);
+                    
+                    $secondResponse = Http::withHeaders([
+                        'Content-Type'   => 'application/json',
+                        'x-goog-api-key' => $apiKey,
+                    ])
+                    ->withOptions(['verify' => $verify])
+                    ->timeout(60)
+                    ->post($url, $payload);
+                    
                     $data = $secondResponse->json();
 
                     if ($secondResponse->successful()) {
