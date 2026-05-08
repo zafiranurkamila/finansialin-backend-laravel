@@ -26,7 +26,6 @@ class Transaction extends Model
     ];
 
     protected $hidden = [
-        'idTransaction',
     ];
 
     protected $casts = [

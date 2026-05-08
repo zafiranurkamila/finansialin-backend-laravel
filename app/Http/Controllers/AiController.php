@@ -534,10 +534,10 @@ KEAMANAN & PRIVASI:
             }
         }
 
-        // gemini-1.5-flash has broader API access; gemini-2.5-flash may require allowlist
+        // gemini-1.5-flash has broader API access; gemini-1.5-pro is a good fallback
         $primaryModel = config('services.gemini.model', 'gemini-1.5-flash');
-        $fallbackModel = config('services.gemini.fallback_model', 'gemini-1.5-flash');
-        $modelsToTry = array_values(array_unique([$primaryModel, $fallbackModel]));
+        $fallbackModel = config('services.gemini.fallback_model', 'gemini-1.5-flash-latest');
+        $modelsToTry = array_values(array_unique([$primaryModel, $fallbackModel, 'gemini-1.5-flash', 'gemini-1.5-pro']));
 
         try {
             $http = Http::withHeaders(['Content-Type' => 'application/json'])
@@ -556,15 +556,24 @@ KEAMANAN & PRIVASI:
                 }
 
                 $status = $response->status();
-                Log::error('Gemini API Error (1st request)', [
+                Log::warning('Gemini API Error (1st request)', [
                     'status'  => $status,
                     'model'   => $model,
                     'details' => $data,
                 ]);
 
-                if (!in_array($status, [429, 503], true)) {
-                    break;
+                // If rate limited or server error, wait a bit and try next model/retry
+                if (in_array($status, [429, 503, 504], true)) {
+                    sleep(1);
+                    continue;
                 }
+
+                // If model not found, try next one immediately
+                if ($status === 404) {
+                    continue;
+                }
+
+                break;
             }
 
             if (!$response || $response->failed()) {
@@ -666,15 +675,24 @@ KEAMANAN & PRIVASI:
                     }
 
                     $status = $secondResponse->status();
-                    Log::error('Gemini API Error (2nd request)', [
+                    Log::warning('Gemini API Error (2nd request)', [
                         'status'  => $status,
                         'model'   => $model,
                         'details' => $data,
                     ]);
 
-                    if (!in_array($status, [429, 503], true)) {
-                        break;
+                    // If rate limited or server error, wait a bit and try next model/retry
+                    if (in_array($status, [429, 503, 504], true)) {
+                        sleep(1);
+                        continue;
                     }
+
+                    // If model not found, try next one immediately
+                    if ($status === 404) {
+                        continue;
+                    }
+
+                    break;
                 }
 
                 if (!$secondResponse || $secondResponse->failed()) {
