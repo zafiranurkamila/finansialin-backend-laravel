@@ -1,5 +1,5 @@
 <?php
-$apiKey = "AIzaSyA--Dv6SSf1A1lCoXwg9PW_a_Ydv1htVrA";
+$apiKey = "AIzaSyA-enZC1gqwz642n3_X5H3oTnPm39eDwYY";
 $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$apiKey}";
 
 $payload = [

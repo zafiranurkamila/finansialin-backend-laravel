@@ -537,17 +537,30 @@ KEAMANAN & PRIVASI:
         // gemini-1.5-flash has broader API access; gemini-1.5-pro is a good fallback
         $primaryModel = config('services.gemini.model', 'gemini-1.5-flash');
         $fallbackModel = config('services.gemini.fallback_model', 'gemini-1.5-flash-latest');
-        $modelsToTry = array_values(array_unique([$primaryModel, $fallbackModel, 'gemini-1.5-flash', 'gemini-1.5-pro']));
+        $modelsToTry = array_values(array_unique([
+            $primaryModel, 
+            $fallbackModel, 
+            'gemini-2.5-flash', 
+            'gemini-2.0-flash', 
+            'gemini-flash-latest', 
+            'gemini-pro-latest', 
+            'gemini-3.1-flash-lite',
+            'gemini-1.5-flash', 
+            'gemini-1.5-pro',
+        ]));
 
         try {
-            $http = Http::withHeaders(['Content-Type' => 'application/json'])
-                ->withOptions(['verify' => $verify])
-                ->timeout(60);
+            $http = Http::withHeaders([
+                'Content-Type'     => 'application/json',
+                'x-goog-api-key'   => $apiKey,
+            ])->withOptions(['verify' => $verify])
+              ->timeout(60);
 
             $response = null;
             $data = null;
             foreach ($modelsToTry as $model) {
-                $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
+                Log::info('Calling Gemini API (Header Auth)', ['url' => $url, 'model' => $model]);
                 $response = $http->post($url, $payload);
                 $data = $response->json();
 
@@ -570,6 +583,14 @@ KEAMANAN & PRIVASI:
 
                 // If model not found, try next one immediately
                 if ($status === 404) {
+                    Log::info('Model 404 detected. Attempting to list available models...');
+                    try {
+                        $listUrl = "https://generativelanguage.googleapis.com/v1beta/models?key={$apiKey}";
+                        $listRes = $http->get($listUrl);
+                        Log::info('Available models for this key:', ['data' => $listRes->json()]);
+                    } catch (\Exception $listEx) {
+                        Log::error('Failed to list models', ['error' => $listEx->getMessage()]);
+                    }
                     continue;
                 }
 
@@ -666,7 +687,7 @@ KEAMANAN & PRIVASI:
                 $secondResponse = null;
                 $data = null;
                 foreach ($modelsToTry as $model) {
-                    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+                    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
                     $secondResponse = $http->post($url, $payload);
                     $data = $secondResponse->json();
 
@@ -824,6 +845,22 @@ KEAMANAN & PRIVASI:
             return response()->json(['error' => 'Gagal mengambil data target tabungan'], 500);
         }
     }
-    
+
+    public function debugModels(): JsonResponse
+    {
+        $apiKey = trim((string) config('services.gemini.api_key', ''));
+        $url = "https://generativelanguage.googleapis.com/v1beta/models?key={$apiKey}";
+        
+        try {
+            $response = Http::get($url);
+            Log::info('Gemini ListModels Response', [
+                'status' => $response->status(),
+                'data' => $response->json()
+            ]);
+            return response()->json($response->json());
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
 }
 

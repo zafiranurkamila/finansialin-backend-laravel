@@ -101,6 +101,7 @@ Route::middleware('token.auth')->group(function (): void {
         Route::post('/receipt-ocr', [AiController::class, 'receiptOcr']);
         Route::post('/predict-early-warning', [AiController::class, 'predictEarlyWarning']);
         Route::post('/chat', [AiController::class, 'chat']);
+        Route::get('/debug-models', [AiController::class, 'debugModels']);
     });
     Route::get('/subscriptions/dashboard', [SubscriptionsController::class, 'dashboard']);
 
