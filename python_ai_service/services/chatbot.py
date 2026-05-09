@@ -9,10 +9,6 @@ from typing import Optional
 
 load_dotenv()
 
-# ==========================================
-# SETUP LANGCHAIN MEMORY & LLM
-# ==========================================
-
 # 1. Dictionary untuk menyimpan riwayat chat sementara (Memory)
 store = {}
 
@@ -34,9 +30,8 @@ LARAVEL_API_URL = os.getenv("LARAVEL_API_URL", "http://127.0.0.1:8000/api")
 @tool
 def get_recent_transactions(user_id: int, limit: int = 5) -> str:
     """
-    Gunakan alat ini SECARA EKSKLUSIF saat pengguna bertanya tentang riwayat transaksi terakhir mereka, 
-    pengeluaran terbaru, pemasukan terbaru, atau "uangku habis buat beli apa saja".
-    Alat ini mengembalikan daftar transaksi terbaru.
+    Panggil alat ini untuk mendapatkan riwayat transaksi terakhir pengguna (pengeluaran dan pemasukan).
+    Gunakan ini secara PROAKTIF saat pengguna meminta tips keuangan, saran penghematan, atau analisis pengeluaran, agar kamu memiliki data untuk memberikan saran yang relevan.
     """
     print(f"[TOOL DIPANGGIL] Mengambil {limit} transaksi terakhir untuk user_id: {user_id}")
     try:
@@ -53,8 +48,8 @@ def get_recent_transactions(user_id: int, limit: int = 5) -> str:
 @tool
 def get_user_balance(user_id: int) -> str:
     """
-    Gunakan alat ini SECARA EKSKLUSIF saat pengguna bertanya tentang total saldo,
-    jumlah uang, sisa uang di dompet, atau rekening mereka.
+    Panggil alat ini untuk mengecek total saldo, jumlah uang, sisa uang di dompet, atau rekening pengguna.
+    Gunakan alat ini secara PROAKTIF saat kamu butuh mengetahui kondisi keuangan pengguna untuk memberikan tips atau rekomendasi.
     """
     print(f"[TOOL DIPANGGIL] Mengambil data saldo untuk user_id: {user_id}")
     try:
@@ -68,8 +63,8 @@ def get_user_balance(user_id: int) -> str:
 @tool
 def get_budget_status(user_id: int, month: Optional[int] = None, year: Optional[int] = None) -> str:
     """
-    Gunakan alat ini saat pengguna bertanya tentang sisa budget (anggaran), peringatan overbudget, 
-    atau batas pengeluaran bulanan mereka.
+    Panggil alat ini untuk mengetahui status budget (anggaran) pengguna, sisa budget, dan peringatan overbudget.
+    Gunakan secara proaktif untuk memberi tips penghematan yang sesuai dengan batasan pengeluaran bulanan mereka.
     """
     print(f"[TOOL DIPANGGIL] Mengambil status budget untuk user_id: {user_id}, bulan: {month}, tahun: {year}")
     try:
@@ -87,8 +82,8 @@ def get_budget_status(user_id: int, month: Optional[int] = None, year: Optional[
 @tool
 def get_monthly_analytics(user_id: int, month: Optional[int] = None, year: Optional[int] = None) -> str:
     """
-    Gunakan alat ini saat pengguna meminta ringkasan pengeluaran bulanan, pemasukan bulanan, 
-    pengeluaran terbesar, atau membandingkan total kategori pengeluaran di bulan tertentu.
+    Panggil alat ini untuk mendapatkan ringkasan pengeluaran bulanan, pemasukan, dan pengeluaran terbesar.
+    Gunakan secara proaktif saat memberikan evaluasi bulanan, mencari tahu pemborosan terbesar, atau menyusun strategi hemat.
     """
     print(f"[TOOL DIPANGGIL] Mengambil analitik bulanan untuk user_id: {user_id}, bulan: {month}, tahun: {year}")
     try:
@@ -162,7 +157,7 @@ tools = [
 system_instruction = """Kamu adalah **Finansialin AI** — asisten keuangan pribadi yang cerdas, empatik, dan proaktif.
 
 Aturan Penting:
-1. Jika pengguna bertanya tentang data keuangan (seperti saldo atau riwayat), KAMU WAJIB menggunakan alat (tools) yang tersedia untuk mencari datanya! Jangan pernah menebak angka.
+1. WAJIB MENGGUNAKAN TOOLS SECARA PROAKTIF: Jika kamu membutuhkan konteks keuangan pengguna (seperti saldo, transaksi, atau status budget) untuk memberikan saran yang kontekstual (seperti saat diminta tips hemat, analisis, atau pertanyaan umum), KAMU WAJIB memanggil tools yang tersedia pada giliran ini juga! JANGAN meminta pengguna untuk menunggu atau mengatakan kamu akan memanggilnya nanti. Langsung panggil tools tersebut. Jangan pernah menebak data keuangan.
 2. Gunakan bahasa Indonesia yang kasual, hangat, dan bersahabat (gunakan 'aku' dan 'kamu').
 3. Setelah mendapat data dari tool, sampaikan datanya dengan rapi dan ramah (tambahkan format Rupiah yang benar).
 4. Jika menampilkan riwayat transaksi, gunakan format bullet point (bullet points) agar mudah dibaca, sebutkan nama kategori/merchant dan nominalnya.
