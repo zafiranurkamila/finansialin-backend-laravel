@@ -1,4 +1,4 @@
-﻿# Finansialin Laravel API Documentation (Draft)
+# Finansialin Laravel API Documentation (Draft)
 
 This document is generated from:
 
@@ -479,15 +479,6 @@ Response includes:
 - `totals` (`totalBudget`, `totalSpent`, `remaining`, `percent`)
 - `data[]` per category (`budgetAmount`, `spent`, `percent`, `overBudget`, `remaining`)
 
-### GET `/api/budgets/predictive`
-
-30/60/90-day trend projection and category warnings.
-
-Response includes:
-
-- `summary`
-- `trends[]`
-- `categoryWarnings[]`
 
 ### POST `/api/budgets/income-split`
 

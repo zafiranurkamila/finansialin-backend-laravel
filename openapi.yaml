@@ -1,4 +1,4 @@
-﻿openapi: 3.0.3
+openapi: 3.0.3
 info:
   title: Finansialin API Documentation
   version: 1.0.0
@@ -1331,30 +1331,7 @@ paths:
                     items:
                       type: object
 
-  /budgets/predictive:
-    get:
-      tags:
-        - Budgets
-      summary: Predictive Budgets Info
-      description: Meramal 30/60/90 days prediction berdasar pattern data
-      responses:
-        "200":
-          description: Predictive stats
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  summary:
-                    type: object
-                  trends:
-                    type: array
-                    items:
-                      type: object
-                  categoryWarnings:
-                    type: array
-                    items:
-                      type: object
+
 
   /budgets/income-split:
     post:
@@ -1524,64 +1501,7 @@ paths:
                         type: string
                         example: "Pengeluaran Lainnya"
 
-  /ai/predict-early-warning:
-    post:
-      tags:
-        - AI Features
-      summary: Predictive Budget Early Warning
-      description: >
-        Memprediksi apakah pengeluaran pengguna akan melebihi budget di bulan ini menggunakan Machine Learning (Time Series Forecasting). 
-        Sistem menganalisis tren pengeluaran harian dan memproyeksikan total pengeluaran di akhir siklus budget. Berguna untuk memberikan peringatan dini kepada user sebelum uang mereka benar-benar habis.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - user_id
-                - budget
-                - payday_date
-                - expenses
-              properties:
-                user_id:
-                  type: integer
-                budget:
-                  type: number
-                payday_date:
-                  type: integer
-                expenses:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      date:
-                        type: string
-                        format: date
-                      amount:
-                        type: number
-      responses:
-        "200":
-          description: Prediksi selesai
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  user_id:
-                    type: integer
-                  projected_total_expense:
-                    type: number
-                    example: 1200000.50
-                  budget:
-                    type: number
-                    example: 1000000
-                  is_overspending:
-                    type: boolean
-                    example: true
-                  warning_message:
-                    type: string
-                    example: "Warning: Projected total expenses exceed your monthly budget. Consider adjusting your spending habits."
+
 
   /ai/assistant:
     get:

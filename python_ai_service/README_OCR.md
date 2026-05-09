@@ -1,6 +1,6 @@
-# Dokumentasi API Service AI (Local OCR & Predictive Budgeting)
+# Dokumentasi API Service AI (Local OCR)
 
-Service Python ini dibangun menggunakan FastAPI untuk menangani tugas-tugas *Machine Learning* yang berat bagi backend Laravel utama, khususnya fitur Prediksi Anggaran (dengan Prophet) serta **Optical Character Recognition (OCR) Lokal** secara *offline* (dengan Hugging Face Transformers & PyTorch).
+Service Python ini dibangun menggunakan FastAPI untuk menangani tugas-tugas *Machine Learning* yang berat bagi backend Laravel utama, khususnya fitur **Optical Character Recognition (OCR) Lokal** secara *offline* (dengan Hugging Face Transformers & PyTorch).
 
 ## 🚀 Fitur Auto-Scan Kuitansi (OCR Lokal)
 

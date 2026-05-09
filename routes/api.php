@@ -83,7 +83,6 @@ Route::middleware('token.auth')->group(function (): void {
     Route::post('/budgets/income-split', [BudgetsController::class, 'incomeSplit']);
     Route::get('/budgets/filter', [BudgetsController::class, 'filter']);
     Route::get('/budgets/goals', [BudgetsController::class, 'goals']);
-    Route::get('/budgets/predictive', [BudgetsController::class, 'predictive']);
     Route::get('/budgets/{id}', [BudgetsController::class, 'show']);
     Route::put('/budgets/{id}', [BudgetsController::class, 'update']);
     Route::delete('/budgets/{id}', [BudgetsController::class, 'destroy']);
@@ -99,7 +98,6 @@ Route::middleware('token.auth')->group(function (): void {
         Route::get('/assistant', [AiController::class, 'assistant']);
         Route::get('/dashboard-summary', [AiController::class, 'dashboardSummary']);
         Route::post('/receipt-ocr', [AiController::class, 'receiptOcr']);
-        Route::post('/predict-early-warning', [AiController::class, 'predictEarlyWarning']);
         Route::post('/chat', [AiController::class, 'chat']);
         Route::get('/debug-models', [AiController::class, 'debugModels']);
     });

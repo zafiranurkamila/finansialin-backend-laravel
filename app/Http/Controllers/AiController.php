@@ -156,41 +156,6 @@ class AiController extends Controller
         }
     }
 
-    public function predictEarlyWarning(Request $request): JsonResponse
-    {
-        $validator = Validator::make($request->all(), [
-            'user_id' => ['required', 'integer'],
-            'budget' => ['required', 'numeric'],
-            'payday_date' => ['required', 'integer'],
-            'expenses' => ['required', 'array'],
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['message' => $validator->errors()->first()], 422);
-        }
-
-        $aiServiceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
-
-        try {
-            $response = Http::timeout(30)->post("{$aiServiceUrl}/predict/budget", $request->all());
-
-            if ($response->successful()) {
-                return response()->json($response->json(), 200);
-            }
-
-            return response()->json([
-                'message' => 'AI Service Error',
-                'details' => $response->json(),
-            ], $response->status());
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to connect to AI service. Pastikan Python AI service berjalan di port yang benar (OCR_AI_SERVICE_URL di .env).',
-                'error'   => $e->getMessage(),
-            ], 500);
-        }
-    }
-
     public function dashboardSummary(Request $request): JsonResponse
     {
         /** @var User $user */
