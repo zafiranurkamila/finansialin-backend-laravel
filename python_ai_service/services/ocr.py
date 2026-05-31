@@ -2,9 +2,6 @@ import re
 from PIL import Image
 
 def extract_receipt_data(image: Image.Image, processor, model, device) -> dict:
-    """
-    Memproses gambar struk dan mengekstrak data JSON menggunakan model Donut.
-    """
     # 1. Proses Gambar
     pixel_values = processor(image, return_tensors="pt").pixel_values
     pixel_values = pixel_values.to(device)
