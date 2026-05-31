@@ -262,7 +262,7 @@ class FinancialInsightService
             $spent = (float) Transaction::query()
                 ->where('idUser', $userId)
                 ->where('type', 'expense')
-                ->whereBetween('date', [$budget->periodStart, $budget->periodEnd])
+                ->whereBetween('date', [$budget->periodStart->startOfDay(), $budget->periodEnd->endOfDay()])
                 ->when($budget->idCategory, fn ($q) => $q->where('idCategory', $budget->idCategory))
                 ->sum('amount');
 

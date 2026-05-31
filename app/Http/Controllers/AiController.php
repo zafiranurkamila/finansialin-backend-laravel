@@ -78,7 +78,7 @@ class AiController extends Controller
                 ->where('idUser', $user->idUser)
                 ->where('type', 'expense')
                 ->when($budget->idCategory, fn ($q) => $q->where('idCategory', $budget->idCategory))
-                ->whereBetween('date', [$budget->periodStart, $budget->periodEnd])
+                ->whereBetween('date', [$budget->periodStart->startOfDay(), $budget->periodEnd->endOfDay()])
                 ->sum('amount');
 
             $limit = (float) $budget->amount;
@@ -117,6 +117,8 @@ class AiController extends Controller
 
     public function receiptOcr(Request $request): JsonResponse
     {
+        set_time_limit(120);
+
         $validator = Validator::make($request->all(), [
             'receiptImage' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
         ]);
@@ -130,25 +132,141 @@ class AiController extends Controller
             return response()->json(['message' => 'receiptImage is required'], 422);
         }
 
+        // ================= GEMINI MULTIMODAL OCR (Fast & Highly Accurate) =================
+        $apiKey = trim((string) config('services.gemini.api_key', ''));
+        Log::info("receiptOcr: Checking Gemini API Key. Key configured: " . ($apiKey !== '' ? 'Yes' : 'No'));
+        
+        if ($apiKey !== '') {
+            $verify = true;
+            $caBundle = trim((string) config('services.gemini.ca_bundle', ''));
+            if ($caBundle !== '') {
+                $verify = $caBundle;
+            } else {
+                $rawVerify = config('services.gemini.ssl_verify', true);
+                if (is_string($rawVerify)) {
+                    $verify = !in_array(strtolower(trim($rawVerify)), ['0', 'false', 'off', 'no'], true);
+                } else {
+                    $verify = (bool) $rawVerify;
+                }
+            }
+
+            try {
+                $modelsToTry = [
+                    'gemini-2.5-flash',
+                    'gemini-2.0-flash', 
+                    'gemini-1.5-flash',
+                ];
+
+                $response = null;
+                $geminiData = null;
+
+                foreach ($modelsToTry as $model) {
+                    $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
+                    
+                    $mimeType = $file->getMimeType();
+                    $base64Data = base64_encode(file_get_contents($file->getRealPath()));
+
+                    Log::info("receiptOcr: Attempting Gemini model {$model}");
+
+                    $payload = [
+                        'contents' => [
+                            [
+                                'parts' => [
+                                    [
+                                        'text' => 'Extract receipt data. Return JSON only with keys: merchant_name (string or null), total_amount (number or 0.0), date (YYYY-MM-DD or null), suggested_category (number, use default 10). Do not include any extra markdown formatting or text outside of the JSON.'
+                                    ],
+                                    [
+                                        'inlineData' => [
+                                            'mimeType' => $mimeType,
+                                            'data' => $base64Data
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ],
+                        'generationConfig' => [
+                            'responseMimeType' => 'application/json'
+                        ]
+                    ];
+
+                    $res = Http::withHeaders([
+                        'Content-Type' => 'application/json',
+                        'x-goog-api-key' => $apiKey,
+                    ])
+                    ->withOptions(['verify' => $verify])
+                    ->timeout(20)
+                    ->post($url, $payload);
+
+                    Log::info("receiptOcr: Gemini {$model} response status: " . $res->status());
+
+                    if ($res->successful()) {
+                        $response = $res;
+                        $geminiData = $res->json();
+                        break;
+                    } else {
+                        Log::warning("receiptOcr: Gemini {$model} response failed: " . json_encode($res->json()));
+                    }
+                }
+
+                if ($response && isset($geminiData['candidates'][0]['content']['parts'][0]['text'])) {
+                    $textResult = trim($geminiData['candidates'][0]['content']['parts'][0]['text']);
+                    Log::info("receiptOcr: Gemini raw text result: " . $textResult);
+                    
+                    // Clean code blocks if present
+                    if (strpos($textResult, '```') === 0) {
+                        $textResult = preg_replace('/^```(?:json)?\s*/i', '', $textResult);
+                        $textResult = preg_replace('/\s*```$/i', '', $textResult);
+                        $textResult = trim($textResult);
+                    }
+
+                    $extracted = json_decode($textResult, true);
+                    if (is_array($extracted)) {
+                        Log::info("receiptOcr: Gemini extraction success", $extracted);
+                        return response()->json([
+                            'status' => 'success',
+                            'data' => [
+                                'merchant_name' => $extracted['merchant_name'] ?? null,
+                                'total_amount' => isset($extracted['total_amount']) ? (float)$extracted['total_amount'] : 0.0,
+                                'date' => $extracted['date'] ?? null,
+                                'suggested_category' => $extracted['suggested_category'] ?? 10
+                            ],
+                            'engine' => 'gemini'
+                        ], 200);
+                    } else {
+                        Log::warning("receiptOcr: Gemini text could not be parsed as JSON: " . $textResult);
+                    }
+                } else {
+                    Log::warning("receiptOcr: Gemini response missing content or invalid. Response: " . json_encode($geminiData));
+                }
+            } catch (\Exception $geminiEx) {
+                Log::warning("Gemini OCR failed, falling back to local OCR: " . $geminiEx->getMessage());
+            }
+        }
+
+        // ================= FALLBACK: LOCAL FASTAPI OCR (Donut Model) =================
         $aiServiceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
+        Log::info("receiptOcr: Falling back to local OCR at: {$aiServiceUrl}");
 
         try {
-            $response = Http::timeout(60)->attach(
+            $response = Http::timeout(120)->attach(
                 'receiptImage',
                 file_get_contents($file->getRealPath()),
                 $file->getClientOriginalName()
             )->post("{$aiServiceUrl}/predict/ocr");
 
             if ($response->successful()) {
+                Log::info("receiptOcr: Local OCR success. Response: " . json_encode($response->json()));
                 return response()->json($response->json(), 200);
             }
 
+            Log::error("receiptOcr: Local OCR failed with status " . $response->status() . ". Response: " . json_encode($response->json()));
             return response()->json([
                 'message' => 'AI Service Error',
                 'details' => $response->json(),
             ], $response->status());
 
         } catch (\Exception $e) {
+            Log::error("receiptOcr: Local OCR connection exception: " . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to connect to AI service. Pastikan Python AI service berjalan di port yang benar (OCR_AI_SERVICE_URL di .env).',
                 'error'   => $e->getMessage(),
@@ -422,18 +540,19 @@ Kamu adalah Finansialin AI, asisten keuangan pribadi yang sangat cerdas, analiti
 Nama pengguna yang sedang kamu bantu adalah: {$user->name}. 
 
 TUGAS UTAMAMU:
-1. Memberikan analisis keuangan yang sangat MENDALAM dan TERSTRUKTUR.
+1. Memberikan analisis keuangan yang sangat MENDALAM, DESKRIPTIF, dan TERSTRUKTUR.
 2. Gunakan tools secara agresif untuk mendapatkan data riil sebelum memberikan saran.
-3. Berikan saran strategis: Jika pengeluaran besar di satu kategori, berikan 3 langkah konkret untuk menguranginya.
+3. Berikan saran strategis dan tips praktis: Selalu berikan tips/langkah konkret untuk menghemat uang, mengoptimalkan budget, atau mengelola keuangan di setiap jawaban Anda.
 4. Selalu sapa pengguna dengan nama mereka: {$user->name}.
 
 GAYA KOMUNIKASI (SANGAT PENTING):
-- JANGAN PERNAH memberikan jawaban singkat satu paragraf. Jawabanmu harus minimal 3-4 paragraf atau list yang mendetail.
-- Gunakan format Markdown yang kaya (Bold, Italic, Tables, Lists).
-- Jika pengguna meminta grafik, tren, atau perbandingan data yang cocok divisualisasikan, sisipkan data grafik di akhir jawabanmu dengan format berikut:
+- JANGAN PERNAH memberikan jawaban singkat satu atau dua paragraf saja. Jawaban Anda harus panjang, deskriptif, detail, dan berisi tips/strategi finansial yang bermanfaat.
+- Gunakan format Markdown yang kaya (Bold, Italic, Tables, Lists) untuk membuat jawaban mudah dibaca.
+- Jika pertanyaan pengguna berkaitan dengan data keuangan (seperti tren pengeluaran, pemasukan, perbandingan kategori belanja, saldo dompet, anggaran/budget, atau analisis data lainnya), Anda WAJIB menyertakan visualisasi grafik di akhir jawaban Anda. Jangan menunggu pengguna meminta grafik secara eksplisit; buatlah grafik secara otomatis jika datanya cocok divisualisasikan.
+- Jika Anda menghasilkan grafik, gunakan format berikut di baris paling akhir jawaban Anda:
   [CHART_DATA: {"type": "line", "labels": ["Jan", "Feb", "Mar"], "values": [100000, 200000, 150000], "title": "Tren Pengeluaran"}]
-  (Gunakan type: 'line' untuk tren, 'bar' untuk perbandingan kategori, 'pie' untuk distribusi pengeluaran).
-- Hubungkan satu data dengan data lainnya (misal: 'Saldo dompet kamu cukup besar, tapi budget makanan kamu sudah hampir habis').
+  (Gunakan type: 'line' untuk tren perkembangan, 'bar' untuk perbandingan nominal/saldo/kategori, dan 'pie' untuk distribusi pengeluaran/pemasukan).
+- Pastikan format JSON di dalam [CHART_DATA: ...] valid dan berisi labels serta values berupa angka riil hasil query tools Anda.
 
 KONTEKS MEMORI:
 - Kamu menerima riwayat percakapan. Ingatlah preferensi dan pertanyaan sebelumnya.
@@ -484,9 +603,7 @@ EOD
 
         $apiKey = trim((string) config('services.gemini.api_key', ''));
         if ($apiKey === '') {
-            return response()->json([
-                'message' => 'Gemini API key is missing. Set GEMINI_API_KEY in backend .env, then restart Laravel server.',
-            ], 500);
+            return $this->localFallbackChat($userId, $message, $user);
         }
 
         $verify = true;
@@ -505,114 +622,95 @@ EOD
         try {
             // Models to try in order of preference
             $modelsToTry = [
-            'gemini-2.0-flash', 
-            'gemini-1.5-flash',
-            'gemini-1.5-flash-8b',
-            'gemini-1.5-pro',
-            'gemini-pro',
-        ];
+                'gemini-2.5-flash',
+                'gemini-2.0-flash', 
+                'gemini-1.5-flash',
+                'gemini-1.5-flash-8b',
+                'gemini-1.5-pro',
+                'gemini-pro',
+            ];
 
-        $lastError = null;
-        $attempted = [];
-        $maxAttempts = 8; 
+            $lastError = null;
+            $attempted = [];
+            $maxAttempts = 8; 
+            $response = null;
+            $data = null;
 
-        for ($i = 0; $i < $maxAttempts; $i++) {
-            $model = $modelsToTry[$i] ?? null;
-            if (!$model) break;
-            
-            if (in_array($model, $attempted)) continue;
-            $attempted[] = $model;
+            for ($i = 0; $i < $maxAttempts; $i++) {
+                $model = $modelsToTry[$i] ?? null;
+                if (!$model) break;
+                
+                if (in_array($model, $attempted)) continue;
+                $attempted[] = $model;
 
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
-            Log::info("Calling Gemini API", ['attempt' => $i + 1, 'model' => $model]);
+                $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent";
+                Log::info("Calling Gemini API", ['attempt' => $i + 1, 'model' => $model]);
 
-            try {
-                $response = Http::withHeaders([
-                    'Content-Type'   => 'application/json',
-                    'x-goog-api-key' => $apiKey,
-                ])
-                ->withOptions(['verify' => $verify])
-                ->timeout(60)
-                ->post($url, $payload);
+                try {
+                    $response = Http::withHeaders([
+                        'Content-Type'   => 'application/json',
+                        'x-goog-api-key' => $apiKey,
+                    ])
+                    ->withOptions(['verify' => $verify])
+                    ->timeout(15)
+                    ->post($url, $payload);
 
-                $data = $response->json();
+                    $data = $response->json();
 
-                if ($response->successful()) {
-                    Log::info("Gemini Success", ['model' => $model]);
-                    break; // Exit the loop on success
-                }
+                    if ($response->successful()) {
+                        Log::info("Gemini Success", ['model' => $model]);
+                        break; // Exit the loop on success
+                    }
 
-                $status = $response->status();
-                Log::warning("Gemini API Error", ['status' => $status, 'model' => $model, 'error' => $data]);
+                    $status = $response->status();
+                    Log::warning("Gemini API Error", ['status' => $status, 'model' => $model, 'error' => $data]);
 
-                // If 404, list available models and add them to the end of the queue
-                if ($status === 404 && count($modelsToTry) < 15) {
-                    $availableRes = Http::withHeaders(['x-goog-api-key' => $apiKey])
-                        ->withOptions(['verify' => $verify])
-                        ->get("https://generativelanguage.googleapis.com/v1beta/models");
-                    
-                    if ($availableRes->successful()) {
-                        $availableData = $availableRes->json();
-                        foreach (($availableData['models'] ?? []) as $m) {
-                            $cleanName = str_replace('models/', '', $m['name']);
-                            if (!in_array($cleanName, $modelsToTry) && (str_contains($cleanName, 'flash') || str_contains($cleanName, 'pro'))) {
-                                $modelsToTry[] = $cleanName;
+                    // If 404, list available models and add them to the end of the queue
+                    if ($status === 404 && count($modelsToTry) < 15) {
+                        $availableRes = Http::withHeaders(['x-goog-api-key' => $apiKey])
+                            ->withOptions(['verify' => $verify])
+                            ->get("https://generativelanguage.googleapis.com/v1beta/models");
+                        
+                        if ($availableRes->successful()) {
+                            $availableData = $availableRes->json();
+                            foreach (($availableData['models'] ?? []) as $m) {
+                                $cleanName = str_replace('models/', '', $m['name']);
+                                if (!in_array($cleanName, $modelsToTry) && (str_contains($cleanName, 'flash') || str_contains($cleanName, 'pro'))) {
+                                    $modelsToTry[] = $cleanName;
+                                }
                             }
                         }
                     }
-                }
 
-                $lastError = $data['error']['message'] ?? 'Unknown error';
-                
-                if (in_array($status, [429, 500, 503], true)) {
-                    sleep(1);
-                }
+                    $lastError = $data['error']['message'] ?? 'Unknown error';
+                    
+                    if (in_array($status, [429, 500, 503], true)) {
+                        sleep(1);
+                    }
 
-            } catch (\Exception $e) {
-                Log::error("Gemini Loop Exception", ['message' => $e->getMessage()]);
-                $lastError = $e->getMessage();
+                } catch (\Exception $e) {
+                    Log::error("Gemini Loop Exception", ['message' => $e->getMessage()]);
+                    $lastError = $e->getMessage();
+                }
             }
-        }
 
-        if (!$response || $response->failed()) {
-            $isQuotaError = str_contains(strtolower($lastError), 'quota') || str_contains(strtolower($lastError), 'exhausted');
-            
-            return response()->json([
-                'message' => $isQuotaError 
-                    ? 'Batas penggunaan API Gemini (Quota) telah tercapai. Silakan coba lagi beberapa saat lagi atau gunakan API Key lain.'
-                    : 'Layanan AI sedang tidak tersedia setelah beberapa percobaan.',
-                'last_error' => $lastError,
-                'attempted' => $attempted
-            ], $isQuotaError ? 429 : 502);
-        }
+            if (!$response || $response->failed()) {
+                Log::warning("Gemini API completely failed. Falling back to local responder.", ['last_error' => $lastError]);
+                return $this->localFallbackChat($userId, $message, $user);
+            }
         } catch (Throwable $e) {
-            $msg = $e->getMessage();
-            if (str_contains(strtolower($msg), 'ssl certificate problem')) {
-                return response()->json([
-                    'message' => 'SSL certificate validation failed when calling Gemini. Set GEMINI_CA_BUNDLE in backend .env to your cacert.pem path and restart Laravel.',
-                    'details' => $msg,
-                ], 502);
-            }
-
-            return response()->json([
-                'message' => 'Failed to connect to Gemini service.',
-                'details' => $msg,
-            ], 502);
+            Log::warning("Gemini API throw exception. Falling back to local responder.", ['error' => $e->getMessage()]);
+            return $this->localFallbackChat($userId, $message, $user);
         }
 
         if (!isset($data['candidates'][0]['content']['parts'])) {
-            Log::error('Gemini API response missing parts', [
+            Log::error('Gemini API response missing parts. Falling back.', [
                 'details' => $data,
             ]);
-            return response()->json([
-                'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
-                'details' => $data,
-            ], 502);
+            return $this->localFallbackChat($userId, $message, $user);
         }
 
         // ── Scan ALL parts for a functionCall ────────────────────────────────
-        // gemini-2.5-flash (thinking model) may emit a text preamble in parts[0]
-        // and put the actual functionCall in parts[1] or later.
         $parts = $data['candidates'][0]['content']['parts'] ?? [];
         $functionCallPart = null;
         foreach ($parts as $part) {
@@ -639,10 +737,6 @@ EOD
                 default                 => [],
             };
 
-            // Round-trip 2: append model turn (with functionCall) + tool result
-            // Fix: PHP json_decode converts {} → [] (empty array). When re-encoded,
-            // [] serialises as a JSON list, but Gemini requires {} (object) for `args`.
-            // We must walk the model content and restore any empty-array `args` to stdClass.
             $modelContent = $data['candidates'][0]['content'];
             foreach ($modelContent['parts'] as &$p) {
                 if (isset($p['functionCall']['args']) && is_array($p['functionCall']['args']) && count($p['functionCall']['args']) === 0) {
@@ -653,7 +747,7 @@ EOD
 
             $payload['contents'][] = $modelContent;
             $payload['contents'][] = [
-                'role'  => 'tool', // 'tool' is required by Gemini v1beta for functionResponse
+                'role'  => 'tool', 
                 'parts' => [
                     [
                         'functionResponse' => [
@@ -664,7 +758,7 @@ EOD
                 ],
             ];
 
-            // Second Gemini request — now it has real data to compose a final reply
+            // Second Gemini request
             try {
                 $secondResponse = null;
                 $data = null;
@@ -677,7 +771,7 @@ EOD
                         'x-goog-api-key' => $apiKey,
                     ])
                     ->withOptions(['verify' => $verify])
-                    ->timeout(60)
+                    ->timeout(15)
                     ->post($url, $payload);
                     
                     $data = $secondResponse->json();
@@ -693,13 +787,11 @@ EOD
                         'details' => $data,
                     ]);
 
-                    // If rate limited or server error, wait a bit and try next model/retry
                     if (in_array($status, [429, 503, 504], true)) {
                         sleep(1);
                         continue;
                     }
 
-                    // If model not found, try next one immediately
                     if ($status === 404) {
                         continue;
                     }
@@ -708,27 +800,20 @@ EOD
                 }
 
                 if (!$secondResponse || $secondResponse->failed()) {
-                    return response()->json([
-                        'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
-                        'details' => $data,
-                    ], 502);
+                    Log::warning("Gemini 2nd request failed. Falling back.");
+                    return $this->localFallbackChat($userId, $message, $user);
                 }
             } catch (Throwable $e) {
-                return response()->json([
-                    'message' => 'Failed on second Gemini request.',
-                    'details' => $e->getMessage(),
-                ], 502);
+                Log::warning("Gemini 2nd request exception. Falling back.", ['error' => $e->getMessage()]);
+                return $this->localFallbackChat($userId, $message, $user);
             }
         }
 
         if (!isset($data['candidates'][0]['content']['parts'])) {
-            Log::error('Gemini API response missing final parts', [
+            Log::error('Gemini API response missing final parts. Falling back.', [
                 'details' => $data,
             ]);
-            return response()->json([
-                'message' => 'Layanan AI sedang tidak tersedia. Silakan coba beberapa saat lagi.',
-                'details' => $data,
-            ], 502);
+            return $this->localFallbackChat($userId, $message, $user);
         }
 
         $reply = 'Maaf, aku tidak bisa memproses permintaan saat ini.';
@@ -742,6 +827,189 @@ EOD
         return response()->json([
             'reply' => $reply
         ]);
+    }
+
+    private function localFallbackChat(int $userId, string $message, User $user): JsonResponse
+    {
+        $msgLower = strtolower($message);
+        $service = $this->insightService;
+
+        // 1. Wallets / Saldo
+        if (str_contains($msgLower, 'saldo') || str_contains($msgLower, 'wallet') || str_contains($msgLower, 'dompet') || str_contains($msgLower, 'rekening') || str_contains($msgLower, 'uang')) {
+            $wallets = $service->getWalletBalances($userId);
+            if ($wallets->isEmpty()) {
+                $reply = "Halo {$user->name}! Saat ini kamu belum memiliki dompet aktif. Silakan tambahkan dompet terlebih dahulu di dashboard.";
+            } else {
+                $total = 0;
+                $listStr = "";
+                $labels = [];
+                $values = [];
+                foreach ($wallets as $w) {
+                    $total += $w['balance'];
+                    $listStr .= "- **" . $w['wallet_name'] . "**: Rp " . number_format($w['balance'], 0, ',', '.') . "\n";
+                    $labels[] = $w['wallet_name'];
+                    $values[] = (float)$w['balance'];
+                }
+                
+                $chartData = [
+                    'type' => 'bar',
+                    'labels' => $labels,
+                    'values' => $values,
+                    'title' => 'Daftar Saldo Dompet Anda'
+                ];
+
+                $reply = "Halo {$user->name}!\n\n"
+                    . "Berikut adalah rincian saldo dompet dan rekening kamu saat ini. Menyimpan dana di beberapa tempat adalah langkah baik untuk membagi pos keuangan Anda:\n\n" 
+                    . $listStr 
+                    . "\n💰 **Total Saldo Keseluruhan**: **Rp " . number_format($total, 0, ',', '.') . "**\n\n"
+                    . "**Tips Finansial untuk Anda:**\n"
+                    . "1. **Pisahkan Rekening Utama & Tabungan**: Hindari mencampur uang belanja harian dengan tabungan darurat agar saldo tidak terpakai secara tidak sengaja.\n"
+                    . "2. **Pantau Selisih Bunga/Biaya Admin**: Pastikan biaya admin bulanan rekening Anda tidak menggerus saldo secara berlebihan.\n"
+                    . "3. **Alokasikan Uang Dingin**: Jika total saldo Anda mencukupi, pertimbangkan untuk memindahkan sebagian dana ke instrumen investasi rendah risiko (seperti reksa dana pasar uang) agar nilainya bertumbuh.\n\n"
+                    . "Berikut adalah grafik visualisasi saldo dompet Anda saat ini:\n\n"
+                    . "[CHART_DATA: " . json_encode($chartData) . "]";
+            }
+            return response()->json(['reply' => $reply]);
+        }
+
+        // 2. Transactions / Riwayat / History
+        if (str_contains($msgLower, 'transaksi') || str_contains($msgLower, 'riwayat') || str_contains($msgLower, 'history') || str_contains($msgLower, 'pengeluaran') || str_contains($msgLower, 'pemasukan')) {
+            $txs = $service->getRecentTransactions($userId, 5);
+            if ($txs->isEmpty()) {
+                $reply = "Halo {$user->name}! Kamu belum memiliki riwayat transaksi keuangan apa pun.";
+            } else {
+                $listStr = "| Tanggal | Keterangan | Kategori | Jenis | Jumlah | Dompet |\n";
+                $listStr .= "| --- | --- | --- | --- | --- | --- |\n";
+                $labels = [];
+                $values = [];
+                foreach ($txs as $t) {
+                    $typeStr = $t['type'] === 'income' ? '📈 Pemasukan' : '📉 Pengeluaran';
+                    $dateOnly = substr($t['date'], 0, 10);
+                    $listStr .= "| {$dateOnly} | {$t['description']} | {$t['category']} | {$typeStr} | Rp " . number_format($t['amount'], 0, ',', '.') . " | {$t['source']} |\n";
+                    
+                    $labels[] = strlen($t['description']) > 15 ? substr($t['description'], 0, 12) . '...' : $t['description'];
+                    $values[] = (float)$t['amount'];
+                }
+                
+                $chartData = [
+                    'type' => 'bar',
+                    'labels' => $labels,
+                    'values' => $values,
+                    'title' => 'Nominal Transaksi Terakhir'
+                ];
+
+                $reply = "Halo {$user->name}!\n\n"
+                    . "Berikut adalah rincian **5 transaksi terakhir** yang telah Anda catat di sistem Finansialin:\n\n" 
+                    . $listStr 
+                    . "\n"
+                    . "**Tips Evaluasi Transaksi:**\n"
+                    . "1. **Catat Secara Real-Time**: Biasakan langsung mencatat pengeluaran begitu transaksi terjadi agar tidak ada pengeluaran 'gaib' yang lupa dicatat.\n"
+                    . "2. **Evaluasi Pengeluaran Kecil (Latte Factor)**: Perhatikan pengeluaran kecil yang berulang (seperti kopi harian, biaya parkir, atau biaya transfer). Tanpa disadari, akumulasinya bisa sangat besar.\n"
+                    . "3. **Bandingkan Pemasukan vs Pengeluaran**: Pastikan arus kas bulanan Anda tetap positif (pemasukan lebih besar daripada pengeluaran) demi menjaga stabilitas keuangan jangka panjang.\n\n"
+                    . "Berikut adalah grafik visualisasi nominal dari transaksi terbaru Anda:\n\n"
+                    . "[CHART_DATA: " . json_encode($chartData) . "]";
+            }
+            return response()->json(['reply' => $reply]);
+        }
+
+        // 3. Budget Status
+        if (str_contains($msgLower, 'budget') || str_contains($msgLower, 'anggaran') || str_contains($msgLower, 'limit')) {
+            $budgets = $service->getBudgetStatus($userId);
+            if ($budgets->isEmpty()) {
+                $reply = "Halo {$user->name}! Kamu belum mengatur limit budget/anggaran belanja kategori apa pun untuk bulan ini. Menetapkan budget sangat disarankan untuk menjaga kesehatan keuanganmu!";
+            } else {
+                $listStr = "| Kategori | Batas Limit | Terpakai | Sisa | Status |\n";
+                $listStr .= "| --- | --- | --- | --- | --- |\n";
+                $labels = [];
+                $values = [];
+                foreach ($budgets as $b) {
+                    $statusSymbol = $b->status === 'Overbudget' ? '🚨 Overbudget' : ($b->status === 'Warning' ? '⚠️ Warning' : '✅ Aman');
+                    $listStr .= "| {$b->category_name} | Rp " . number_format($b->budget_limit, 0, ',', '.') 
+                        . " | Rp " . number_format($b->total_spent, 0, ',', '.') 
+                        . " | Rp " . number_format($b->remaining_budget, 0, ',', '.') 
+                        . " | {$statusSymbol} |\n";
+                    
+                    $labels[] = $b->category_name;
+                    $values[] = (float)$b->total_spent;
+                }
+                
+                $chartData = [
+                    'type' => 'bar',
+                    'labels' => $labels,
+                    'values' => $values,
+                    'title' => 'Pengeluaran per Budget Kategori'
+                ];
+
+                $reply = "Halo {$user->name}!\n\n"
+                    . "Berikut adalah status **anggaran belanja (budget)** kamu untuk bulan ini. Memantau budget membantu Anda mendeteksi kebocoran dana lebih awal:\n\n" 
+                    . $listStr 
+                    . "\n"
+                    . "**Tips Mengelola Budget Belanja:**\n"
+                    . "1. **Prioritaskan Kategori Rawan**: Fokuslah mengontrol ketat kategori yang saat ini berstatus **Warning** (mendekati limit) atau **Overbudget**.\n"
+                    . "2. **Gunakan Metode Amplop**: Jika sulit menahan diri, bagi budget bulanan menjadi alokasi mingguan agar Anda tidak kehabisan uang di tengah bulan.\n"
+                    . "3. **Sesuaikan Limit Bulan Depan**: Jika suatu kategori terus-menerus overbudget, mungkin batas limitnya terlalu rendah. Sesuaikan dengan realita kebutuhan Anda secara bijak.\n\n"
+                    . "Berikut adalah grafik pengeluaran dari masing-masing kategori budget Anda:\n\n"
+                    . "[CHART_DATA: " . json_encode($chartData) . "]";
+            }
+            return response()->json(['reply' => $reply]);
+        }
+
+        // 4. Analytics / Kategori Terbesar / Analisis
+        if (str_contains($msgLower, 'analitik') || str_contains($msgLower, 'kategori') || str_contains($msgLower, 'terbesar') || str_contains($msgLower, 'analisis') || str_contains($msgLower, 'grafik')) {
+            $summary = $service->getMonthlySummary($userId);
+            if (empty($summary['expenseByCategory'])) {
+                $reply = "Halo {$user->name}! Belum ada pengeluaran yang tercatat pada bulan ini untuk dianalisis.";
+            } else {
+                $listStr = "";
+                $totalExpense = $summary['summary']['totalExpense'];
+                $labels = [];
+                $values = [];
+                foreach ($summary['expenseByCategory'] as $c) {
+                    $percent = $totalExpense > 0 ? round(($c['amount'] / $totalExpense) * 100, 1) : 0;
+                    $listStr .= "- **" . $c['name'] . "**: Rp " . number_format($c['amount'], 0, ',', '.') . " ({$percent}%)\n";
+                    $labels[] = $c['name'];
+                    $values[] = (float)$c['amount'];
+                }
+                
+                $chartData = [
+                    'type' => 'pie',
+                    'labels' => $labels,
+                    'values' => $values,
+                    'title' => 'Distribusi Pengeluaran Bulan Ini'
+                ];
+
+                $reply = "Halo {$user->name}!\n\n"
+                    . "Berikut adalah ringkasan pengeluaran bulanan kamu berdasarkan kategori:\n\n" 
+                    . $listStr 
+                    . "\n📉 **Total Pengeluaran Bulan Ini**: **Rp " . number_format($totalExpense, 0, ',', '.') . "**\n"
+                    . "📈 **Total Pemasukan Bulan Ini**: **Rp " . number_format($summary['summary']['totalIncome'], 0, ',', '.') . "**\n"
+                    . "💰 **Sisa Saldo Bersih (Net)**: **Rp " . number_format($summary['summary']['net'], 0, ',', '.') . "**\n\n"
+                    . "Kategori pengeluaran terbesar kamu adalah **" . ($summary['topExpenseCategory'] ?? 'Tidak ada') . "** dengan total **Rp " . number_format($summary['topExpenseAmount'], 0, ',', '.') . "**. Coba kurangi pengeluaran untuk kategori ini untuk berhemat!\n\n"
+                    . "Berikut adalah grafik visualisasi distribusi pengeluaran Anda:\n\n"
+                    . "[CHART_DATA: " . json_encode($chartData) . "]";
+            }
+            return response()->json(['reply' => $reply]);
+        }
+
+        // 5. Tips / Hemat / Saran / Strategi
+        if (str_contains($msgLower, 'tips') || str_contains($msgLower, 'hemat') || str_contains($msgLower, 'saran') || str_contains($msgLower, 'strategi') || str_contains($msgLower, 'cara')) {
+            $reply = "Halo {$user->name}!\n\n"
+                . "Berikut adalah **3 strategi hemat praktis** minggu ini untuk meningkatkan kesehatan finansial Anda:\n\n"
+                . "1. **Terapkan Aturan 24 Jam**: Tunda pembelian barang non-kebutuhan selama 24 jam. Jika setelah 24 jam Anda masih merasa sangat butuh, baru pertimbangkan untuk membelinya. Seringkali keinginan belanja impulsif hilang dalam 24 jam.\n"
+                . "2. **Buat Budget Ketat untuk Kategori Terbesar**: Batasi pengeluaran harian atau mingguan Anda khususnya pada kategori makanan/hiburan.\n"
+                . "3. **Amankan 10-20% Tabungan di Awal**: Begitu menerima pemasukan atau gajian, langsung transfer minimal 10% ke rekening tabungan khusus dan jangan disentuh.\n\n"
+                . "Semoga tips ini membantu Anda mengelola keuangan dengan lebih bijak!";
+            return response()->json(['reply' => $reply]);
+        }
+
+        $reply = "Halo {$user->name}! Saya Finansialin AI. Saat ini server Gemini API sedang bermasalah/kuota habis. Namun, saya tetap bisa membantu Anda membaca data keuangan lokal Anda secara langsung!\n\n"
+            . "Cobalah tanyakan hal-hal berikut:\n"
+            . "- **Berapa saldo dompet saya saat ini?** (ketik 'saldo' / 'dompet')\n"
+            . "- **Tampilkan transaksi terakhir** (ketik 'transaksi' / 'riwayat')\n"
+            . "- **Bagaimana status budget belanja saya?** (ketik 'budget' / 'anggaran')\n"
+            . "- **Kategori apa dengan pengeluaran terbesar?** (ketik 'analisis' / 'pengeluaran terbesar')\n"
+            . "- **Berikan saya tips hemat keuangan** (ketik 'tips hemat')";
+        return response()->json(['reply' => $reply]);
     }
     // Fungsi khusus internal: Status Budget
     public function internalGetBudgetStatus(Request $request): JsonResponse

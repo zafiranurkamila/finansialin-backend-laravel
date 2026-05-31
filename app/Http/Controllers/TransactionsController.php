@@ -437,7 +437,7 @@ class TransactionsController extends Controller
             ->where('idUser', $user->idUser)
             ->where('idCategory', $tx->idCategory)
             ->where('periodStart', '<=', $tx->date)
-            ->where('periodEnd', '>=', $tx->date)
+            ->where('periodEnd', '>=', $tx->date->startOfDay())
             ->get();
 
         foreach ($budgets as $budget) {
@@ -445,7 +445,7 @@ class TransactionsController extends Controller
                 ->where('idUser', $user->idUser)
                 ->where('idCategory', $tx->idCategory)
                 ->where('type', 'expense')
-                ->whereBetween('date', [$budget->periodStart, $budget->periodEnd])
+                ->whereBetween('date', [$budget->periodStart->startOfDay(), $budget->periodEnd->endOfDay()])
                 ->sum('amount');
 
             $limit = (float) $budget->amount;

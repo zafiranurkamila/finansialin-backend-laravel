@@ -29,7 +29,7 @@ class BudgetsController extends Controller
             $query = Transaction::query()
                 ->where('idUser', $user->idUser)
                 ->where('type', 'expense')
-                ->whereBetween('date', [$budget->periodStart, $budget->periodEnd]);
+                ->whereBetween('date', [$budget->periodStart->startOfDay(), $budget->periodEnd->endOfDay()]);
 
             if ($budget->idCategory) {
                 $query->where('idCategory', $budget->idCategory);
@@ -194,7 +194,7 @@ class BudgetsController extends Controller
         $query = Transaction::query()
             ->where('idUser', $user->idUser)
             ->where('type', 'expense')
-            ->whereBetween('date', [$budget->periodStart, $budget->periodEnd]);
+            ->whereBetween('date', [$budget->periodStart->startOfDay(), $budget->periodEnd->endOfDay()]);
 
         if ($budget->idCategory) {
             $query->where('idCategory', $budget->idCategory);
@@ -416,7 +416,7 @@ class BudgetsController extends Controller
         $totalIncome = (float) Transaction::query()
             ->where('idUser', $user->idUser)
             ->where('type', 'income')
-            ->whereBetween('date', [$periodStart, $periodEnd])
+            ->whereBetween('date', [$periodStart->startOfDay(), $periodEnd->endOfDay()])
             ->sum('amount');
 
         $rows = [];

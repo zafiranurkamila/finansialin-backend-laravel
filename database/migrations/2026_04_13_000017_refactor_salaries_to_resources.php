@@ -13,7 +13,7 @@ return new class extends Migration {
         });
 
         // Drop old salaries table
-        Schema::dropIfExists('salaries');
+        // Schema::dropIfExists('salaries');
 
         // Create new resources table
         Schema::create('resources', function (Blueprint $table) {

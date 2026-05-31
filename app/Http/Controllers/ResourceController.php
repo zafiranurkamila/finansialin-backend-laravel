@@ -148,9 +148,7 @@ class ResourceController extends Controller
             $payload['source'] = $newName;
         }
 
-        if ($request->has('initialBalance')) {
-            $payload['balance'] = $request->input('initialBalance');
-        }
+        // Balance cannot be edited directly, only name can be updated if allowed.
 
         $resource->update($payload);
 
