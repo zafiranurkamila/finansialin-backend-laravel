@@ -269,6 +269,7 @@ class AuthController extends Controller
         }
 
         $token->update(['revokedAt' => now()]);
+        \Illuminate\Support\Facades\Cache::forget("auth_token:{$token->tokenHash}");
 
         return response()->json($this->issueTokens($token->user));
     }
@@ -339,6 +340,7 @@ class AuthController extends Controller
         if (preg_match('/^Bearer\s+(.+)$/i', $header, $matches)) {
             $tokenHash = hash('sha256', trim($matches[1]));
             AuthToken::query()->where('tokenHash', $tokenHash)->update(['revokedAt' => now()]);
+            \Illuminate\Support\Facades\Cache::forget("auth_token:{$tokenHash}");
         }
 
         return response()->json(['message' => 'Logout successful']);
@@ -463,12 +465,11 @@ class AuthController extends Controller
             'password' => Hash::make($request->string('password')->toString()),
         ])->save();
 
-        UserNotification::create([
-            'idUser' => $user->idUser,
-            'type' => 'PASSWORD_RESET',
-            'read' => false,
-            'message' => 'Password Anda telah berhasil direset menggunakan kode OTP.',
-        ]);
+        \App\Jobs\CreateNotificationJob::dispatch(
+            $user->idUser,
+            'PASSWORD_RESET',
+            'Password Anda telah berhasil direset menggunakan kode OTP.'
+        );
 
         return response()->json([
             'message' => 'Password reset successful',
@@ -511,7 +512,7 @@ class AuthController extends Controller
 
     private function issueTokens(User $user): array
     {
-        $accessExp = now()->addMinutes((int) env('ACCESS_TOKEN_TTL_MINUTES', 15));
+        $accessExp = now()->addMinutes((int) env('ACCESS_TOKEN_TTL_MINUTES', 60));
         $refreshExp = now()->addDays((int) env('REFRESH_TOKEN_TTL_DAYS', 7));
 
         $access = AuthToken::issue($user, 'access', $accessExp);
@@ -522,7 +523,7 @@ class AuthController extends Controller
             'refreshToken' => $refresh['plain'],
             'access_token' => $access['plain'],
             'refresh_token' => $refresh['plain'],
-            'expiresIn' => '15m',
+            'expiresIn' => '60m',
         ];
     }
 
@@ -595,11 +596,6 @@ class AuthController extends Controller
 
     private function sendOtpMail(string $email, string $subject, string $code): void
     {
-        Mail::raw(
-            "Kode OTP Anda: {$code}\nBerlaku selama 10 menit.",
-            static function ($message) use ($email, $subject): void {
-                $message->to($email)->subject($subject);
-            }
-        );
+        Mail::to($email)->send(new \App\Mail\OtpMail($subject, $code));
     }
 }

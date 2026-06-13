@@ -22,29 +22,28 @@ class BudgetsController extends Controller
         $budgets = Budget::query()
             ->with('category')
             ->where('idUser', $user->idUser)
+            ->addSelect(['*', 'spent' => Transaction::selectRaw('COALESCE(SUM(amount), 0)')
+                ->whereColumn('transactions.idUser', 'budgets.idUser')
+                ->where('transactions.type', 'expense')
+                ->whereColumn('transactions.date', '>=', 'budgets.periodStart')
+                ->whereColumn('transactions.date', '<=', 'budgets.periodEnd')
+                ->where(function ($q) {
+                    $q->whereNull('budgets.idCategory')
+                      ->orWhereColumn('transactions.idCategory', 'budgets.idCategory');
+                })
+            ])
             ->orderByDesc('periodStart')
-            ->get();
+            ->paginate(20);
 
-        $result = $budgets->map(function (Budget $budget) use ($user) {
-            $query = Transaction::query()
-                ->where('idUser', $user->idUser)
-                ->where('type', 'expense')
-                ->whereBetween('date', [$budget->periodStart->startOfDay(), $budget->periodEnd->endOfDay()]);
-
-            if ($budget->idCategory) {
-                $query->where('idCategory', $budget->idCategory);
-            }
-
-            $used = (float) $query->sum('amount');
-
+        $budgets->getCollection()->transform(function (Budget $budget) {
+            $used = (float) $budget->spent;
             $arr = $budget->toArray();
             $arr['spent'] = $used;
             $arr['percent'] = $budget->amount > 0 ? ($used / $budget->amount) * 100 : 0;
-
             return $arr;
         });
 
-        return response()->json($result);
+        return response()->json($budgets);
     }
 
     public function store(Request $request): JsonResponse
@@ -260,6 +259,14 @@ class BudgetsController extends Controller
             : CarbonImmutable::now('UTC');
         $idCategory = $request->query('idCategory');
 
+        $cacheService = app(\App\Services\UserCacheService::class);
+        $version = $cacheService->getVersion($user->idUser);
+        $catStr = $idCategory ?? 'all';
+        $cacheKey = "user:{$user->idUser}:budget-status:v{$version}:{$period}-{$date->year}-{$date->month}-{$catStr}-{$txType}";
+
+        $data = \Illuminate\Support\Facades\Cache::remember($cacheKey, \App\Services\UserCacheService::TTL_BUDGET_STATUS, function () use ($user, $period, $date, $txType, $idCategory) {
+
+
         [$start, $end] = $this->periodRange($period, $date);
 
         $budgetQuery = Budget::query()
@@ -338,20 +345,23 @@ class BudgetsController extends Controller
         $totalBudget = array_sum($budgetMap);
         $totalSpent = array_sum($spentMap);
 
-        return response()->json([
-            'period' => [
-                'start' => $start,
-                'end' => $end,
-                'period' => $period,
-            ],
-            'totals' => [
-                'totalBudget' => $totalBudget,
-                'totalSpent' => $totalSpent,
-                'remaining' => $totalBudget - $totalSpent,
-                'percent' => $totalBudget > 0 ? ($totalSpent / $totalBudget) * 100 : 0,
-            ],
-            'data' => $data,
-        ]);
+            return [
+                'period' => [
+                    'start' => $start,
+                    'end' => $end,
+                    'period' => $period,
+                ],
+                'totals' => [
+                    'totalBudget' => $totalBudget,
+                    'totalSpent' => $totalSpent,
+                    'remaining' => $totalBudget - $totalSpent,
+                    'percent' => $totalBudget > 0 ? ($totalSpent / $totalBudget) * 100 : 0,
+                ],
+                'data' => $data,
+            ];
+        });
+
+        return response()->json($data);
     }
 
     public function incomeSplit(Request $request): JsonResponse

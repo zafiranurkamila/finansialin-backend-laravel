@@ -24,6 +24,15 @@ Route::get('/openapi.yaml', function () {
     return response()->file(base_path('openapi.yaml'));
 });
 
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+        'timestamp' => now()->toIso8601String(),
+        'db' => \Illuminate\Support\Facades\DB::connection()->getPdo() ? 'connected' : 'disconnected',
+        'cache' => \Illuminate\Support\Facades\Cache::store()->getStore() ? 'connected' : 'disconnected',
+    ]);
+});
+
 Route::prefix('auth')->group(function (): void {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/register/verify', [AuthController::class, 'verifyRegister']);
@@ -118,4 +127,8 @@ Route::middleware('token.auth')->group(function (): void {
     Route::get('/resources/{idResource}', [ResourceController::class, 'show']);
     Route::put('/resources/{idResource}', [ResourceController::class, 'update']);
     Route::delete('/resources/{idResource}', [ResourceController::class, 'destroy']);
+});
+
+Route::prefix('internal')->middleware('internal.auth')->group(function (): void {
+    Route::get('/financial-context', [\App\Http\Controllers\InternalController::class, 'financialContext']);
 });

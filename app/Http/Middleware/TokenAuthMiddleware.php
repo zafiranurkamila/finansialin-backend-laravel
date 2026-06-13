@@ -22,15 +22,13 @@ class TokenAuthMiddleware
 
         $plainToken = trim($matches[1]);
         $tokenHash = hash('sha256', $plainToken);
+        $cacheKey = "auth_token:{$tokenHash}";
 
-        $token = AuthToken::query()
-            ->where('tokenHash', $tokenHash)
-            ->where('type', 'access')
-            ->whereNull('revokedAt')
-            ->where('expiresAt', '>', now())
-            ->first();
+        $token = \Illuminate\Support\Facades\Cache::remember($cacheKey, 300, function () use ($tokenHash) {
+            return AuthToken::with('user')->where('tokenHash', $tokenHash)->first();
+        });
 
-        if (!$token || !$token->user) {
+        if (!$token || $token->type !== 'access' || $token->revokedAt !== null || $token->expiresAt <= now() || !$token->user) {
             return new JsonResponse([
                 'message' => 'Unauthorized',
             ], 401);

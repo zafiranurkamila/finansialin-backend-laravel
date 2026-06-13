@@ -47,3 +47,7 @@ python_ai_service/.env
 *.pt
 *.pth
 *.h5
+
+**/caddy
+frankenphp
+frankenphp-worker.php

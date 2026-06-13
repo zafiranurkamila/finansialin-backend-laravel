@@ -39,4 +39,15 @@ class Budget extends Model
     {
         return $this->belongsTo(Category::class, 'idCategory', 'idCategory');
     }
+
+    protected static function booted(): void
+    {
+        $flushCache = function (self $model) {
+            app(\App\Services\UserCacheService::class)->flushFinancialCache($model->idUser);
+        };
+
+        static::created($flushCache);
+        static::updated($flushCache);
+        static::deleted($flushCache);
+    }
 }

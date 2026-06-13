@@ -173,7 +173,7 @@ class AiController extends Controller
                             [
                                 'parts' => [
                                     [
-                                        'text' => 'Extract receipt data. Return JSON only with keys: merchant_name (string or null), total_amount (number or 0.0), date (YYYY-MM-DD or null), suggested_category (number, use default 10). Do not include any extra markdown formatting or text outside of the JSON.'
+                                        'text' => 'Extract receipt data. Return JSON only with keys: merchant_name (string or null), total_amount (integer number in Indonesian Rupiah, no thousand separators, no decimals), date (YYYY-MM-DD or null), suggested_category (number, use default 10). Treat Indonesian separators as thousands: 43.000 must be 43000, 93.200 must be 93200. Do not return 43 for 43.000. Do not include any extra markdown formatting or text outside of the JSON.'
                                     ],
                                     [
                                         'inlineData' => [
@@ -226,7 +226,7 @@ class AiController extends Controller
                             'status' => 'success',
                             'data' => [
                                 'merchant_name' => $extracted['merchant_name'] ?? null,
-                                'total_amount' => isset($extracted['total_amount']) ? (float)$extracted['total_amount'] : 0.0,
+                                'total_amount' => $this->normalizeReceiptAmount($extracted['total_amount'] ?? null, $textResult),
                                 'date' => $extracted['date'] ?? null,
                                 'suggested_category' => $extracted['suggested_category'] ?? 10
                             ],
@@ -243,27 +243,23 @@ class AiController extends Controller
             }
         }
 
-        // ================= FALLBACK: LOCAL FASTAPI OCR (Donut Model) =================
-        $aiServiceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8001'), '/');
+        // ================= FALLBACK: LOCAL FASTAPI OCR QUEUE (Donut Model) =================
+        $aiServiceUrl = rtrim((string) config('services.ocr.service_url', 'http://127.0.0.1:8002'), '/');
         Log::info("receiptOcr: Falling back to local OCR at: {$aiServiceUrl}");
 
         try {
-            $response = Http::timeout(120)->attach(
-                'receiptImage',
-                file_get_contents($file->getRealPath()),
-                $file->getClientOriginalName()
-            )->post("{$aiServiceUrl}/predict/ocr");
+            $queuedResult = $this->runQueuedOcr($file, $aiServiceUrl);
 
-            if ($response->successful()) {
-                Log::info("receiptOcr: Local OCR success. Response: " . json_encode($response->json()));
-                return response()->json($response->json(), 200);
+            if ($queuedResult['ok']) {
+                Log::info("receiptOcr: Local OCR success. Response: " . json_encode($queuedResult['body']));
+                return response()->json($queuedResult['body'], 200);
             }
 
-            Log::error("receiptOcr: Local OCR failed with status " . $response->status() . ". Response: " . json_encode($response->json()));
+            Log::error("receiptOcr: Local OCR failed. Response: " . json_encode($queuedResult));
             return response()->json([
-                'message' => 'AI Service Error',
-                'details' => $response->json(),
-            ], $response->status());
+                'message' => $queuedResult['message'],
+                'details' => $queuedResult['body'],
+            ], $queuedResult['status']);
 
         } catch (\Exception $e) {
             Log::error("receiptOcr: Local OCR connection exception: " . $e->getMessage());
@@ -272,6 +268,177 @@ class AiController extends Controller
                 'error'   => $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function runQueuedOcr(UploadedFile $file, string $aiServiceUrl): array
+    {
+        $submitResponse = Http::timeout(30)->attach(
+            'receiptImage',
+            file_get_contents($file->getRealPath()),
+            $file->getClientOriginalName()
+        )->post("{$aiServiceUrl}/ocr/jobs");
+
+        if (!$submitResponse->successful()) {
+            return [
+                'ok' => false,
+                'status' => $submitResponse->status(),
+                'message' => 'AI Service Error',
+                'body' => $submitResponse->json(),
+            ];
+        }
+
+        $submitPayload = $submitResponse->json();
+        $jobId = is_array($submitPayload) ? ($submitPayload['job_id'] ?? null) : null;
+
+        if (!is_string($jobId) || $jobId === '') {
+            return [
+                'ok' => false,
+                'status' => 502,
+                'message' => 'AI Service returned an invalid OCR job response',
+                'body' => $submitPayload,
+            ];
+        }
+
+        $deadline = microtime(true) + 110;
+        $lastPayload = $submitPayload;
+
+        do {
+            usleep(750000);
+
+            $pollResponse = Http::timeout(10)->get("{$aiServiceUrl}/ocr/jobs/" . rawurlencode($jobId));
+            $lastPayload = $pollResponse->json();
+
+            if (!$pollResponse->successful()) {
+                return [
+                    'ok' => false,
+                    'status' => $pollResponse->status(),
+                    'message' => 'AI Service Error',
+                    'body' => $lastPayload,
+                ];
+            }
+
+            if (!is_array($lastPayload)) {
+                continue;
+            }
+
+            $status = (string) ($lastPayload['status'] ?? 'unknown');
+
+            if ($status === 'done') {
+                $result = $lastPayload['result'] ?? [];
+                return [
+                    'ok' => true,
+                    'status' => 200,
+                    'message' => 'OCR completed',
+                    'body' => $this->normalizeQueuedOcrResult(is_array($result) ? $result : []),
+                ];
+            }
+
+            if ($status === 'failed') {
+                return [
+                    'ok' => false,
+                    'status' => 502,
+                    'message' => 'AI Service OCR job failed',
+                    'body' => $lastPayload,
+                ];
+            }
+        } while (microtime(true) < $deadline);
+
+        return [
+            'ok' => false,
+            'status' => 504,
+            'message' => 'AI Service OCR job timed out',
+            'body' => $lastPayload,
+        ];
+    }
+
+    private function normalizeQueuedOcrResult(array $result): array
+    {
+        $data = $result['data'] ?? $result;
+        $data = is_array($data) ? $data : [];
+
+        $response = [
+            'status' => $result['status'] ?? 'success',
+            'data' => [
+                'merchant_name' => $data['merchant_name'] ?? null,
+                'total_amount' => $this->normalizeReceiptAmount($data['total_amount'] ?? null),
+                'date' => $data['date'] ?? null,
+                'suggested_category' => $data['suggested_category'] ?? 10,
+            ],
+            'engine' => 'donut',
+        ];
+
+        if (array_key_exists('debug_raw_ai', $result)) {
+            $response['debug_raw_ai'] = $result['debug_raw_ai'];
+        }
+
+        return $response;
+    }
+
+    private function normalizeReceiptAmount(mixed $amount, ?string $rawPayload = null): float
+    {
+        if ($rawPayload !== null && preg_match('/"total_amount"\s*:\s*"?([^",}\s]+)"?/i', $rawPayload, $match)) {
+            $fromRawPayload = $this->parseReceiptAmountString($match[1]);
+            if ($fromRawPayload > 0) {
+                return $fromRawPayload;
+            }
+        }
+
+        if (is_string($amount)) {
+            return $this->parseReceiptAmountString($amount);
+        }
+
+        if (is_int($amount) || is_float($amount)) {
+            $value = (float) $amount;
+
+            if ($value > 0 && $value < 1000) {
+                $raw = rtrim(rtrim(number_format($value, 6, '.', ''), '0'), '.');
+                $digits = preg_replace('/\D/', '', $raw) ?? '';
+
+                if (strlen($digits) <= 2) {
+                    return (float) ((int) $digits * 1000);
+                }
+
+                if (strlen($digits) === 3) {
+                    return (float) ((int) $digits * 100);
+                }
+            }
+
+            return $value;
+        }
+
+        return 0.0;
+    }
+
+    private function parseReceiptAmountString(string $rawAmount): float
+    {
+        $amountPart = preg_replace('/[^\d\.,]/', '', $rawAmount) ?? '';
+
+        if ($amountPart === '') {
+            return 0.0;
+        }
+
+        $lastDot = strrpos($amountPart, '.');
+        $lastComma = strrpos($amountPart, ',');
+        $lastSeparator = max($lastDot === false ? -1 : $lastDot, $lastComma === false ? -1 : $lastComma);
+
+        if ($lastSeparator >= 0) {
+            $before = substr($amountPart, 0, $lastSeparator);
+            $after = substr($amountPart, $lastSeparator + 1);
+            $beforeDigits = preg_replace('/\D/', '', $before) ?? '';
+            $hasOtherSeparator = str_contains($before, '.') || str_contains($before, ',');
+
+            if (strlen($after) === 2 && ($hasOtherSeparator || strlen($beforeDigits) > 3)) {
+                $amountPart = $before;
+            }
+        }
+
+        $clean = preg_replace('/\D/', '', $amountPart) ?? '';
+
+        if ($clean === '') {
+            return 0.0;
+        }
+
+        return (float) $clean;
     }
 
     public function dashboardSummary(Request $request): JsonResponse
@@ -1121,4 +1288,3 @@ EOD
         }
     }
 }
-

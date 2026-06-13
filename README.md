@@ -67,10 +67,23 @@ You can also use `DB_URL` as a backward-compat alias.
 php artisan migrate
 ```
 
-6. Run server:
+6. Start Queue Worker (For sending email and async processing):
+
+```bash
+php artisan queue:work
+```
+You can also specify the queues: `php artisan queue:work --queue=emails,default`
+
+7. Run server (Standard):
 
 ```bash
 php artisan serve --host=127.0.0.1 --port=8000 --no-reload
+```
+
+8. Run server (Octane with FrankenPHP):
+
+```bash
+php artisan octane:start --server=frankenphp --host=127.0.0.1 --port=8000
 ```
 
 ## Windows Note (PHPRC)

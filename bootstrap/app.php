@@ -20,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'token.auth' => \App\Http\Middleware\TokenAuthMiddleware::class,
             'token.2fa.pending' => \App\Http\Middleware\PendingTwoFactorTokenMiddleware::class,
+            'internal.auth' => \App\Http\Middleware\InternalServiceAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

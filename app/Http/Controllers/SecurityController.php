@@ -198,12 +198,7 @@ class SecurityController extends Controller
 
     private function sendOtpMail(string $email, string $subject, string $code): void
     {
-        Mail::raw(
-            "Kode OTP Anda: {$code}\nBerlaku selama 10 menit.",
-            static function ($message) use ($email, $subject): void {
-                $message->to($email)->subject($subject);
-            }
-        );
+        Mail::to($email)->send(new \App\Mail\OtpMail($subject, $code));
     }
 
     private function shouldExposeDebugOtp(): bool

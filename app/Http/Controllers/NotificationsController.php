@@ -18,7 +18,7 @@ class NotificationsController extends Controller
             UserNotification::query()
                 ->where('idUser', $user->idUser)
                 ->orderByDesc('createdAt')
-                ->get()
+                ->paginate(20)
         );
     }
 
@@ -32,7 +32,7 @@ class NotificationsController extends Controller
                 ->where('idUser', $user->idUser)
                 ->where('read', false)
                 ->orderByDesc('createdAt')
-                ->get()
+                ->paginate(20)
         );
     }
 
