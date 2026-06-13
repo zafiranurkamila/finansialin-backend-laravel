@@ -40,17 +40,22 @@
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
             "@php artisan migrate --force",
+            "@php artisan db:seed --class=DemoAccountSeeder --force",
             "npm install",
             "npm run build"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
             "@php scripts/normalize-env.php",
+            "@php artisan migrate --force",
+            "@php artisan db:seed --class=DemoAccountSeeder --force",
             "php artisan serve --host=127.0.0.1 --port=8000 --no-reload"
         ],
         "dev:full": [
             "Composer\\Config::disableProcessTimeout",
             "@php scripts/normalize-env.php",
+            "@php artisan migrate --force",
+            "@php artisan db:seed --class=DemoAccountSeeder --force",
             "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve --host=127.0.0.1 --port=8000 --no-reload\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite --kill-others"
         ],
         "test": [
